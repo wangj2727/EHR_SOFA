@@ -5,7 +5,7 @@ The main data collected from the study is not available at this time; therefore 
 
 ## Overview
 
-*Program* and *output* folders contains R scripts and model results, separately. 
+**Program** and **output** folders contains R scripts and analysis results, separately. 
 
 In the *Program* folder, R and Rmd files were named by either the table/figure number or by the analysis that was included in the code:
 
