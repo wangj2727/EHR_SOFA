@@ -9,7 +9,7 @@ The main data collected from the study is not available at this time; therefore 
 
 In the *Program* folder, R and Rmd files were named by either the table/figure number or by the analysis that was included in the code:
 
-1. `r DataClean_DataSplit.R` contains R code to perform data cleaning and derivative/validation set splitting.
+1. `DataClean_DataSplit.R` contains R code to perform data cleaning and derivative/validation set splitting.
 2. `r MVdata_creation.R` gives R code to create analysis-ready datasets for the primary and sensitivity analyses.
 3. `r Table 1 Patient Characteristics.Rmd` contains Rmd code to generate Table 1
 4. `r Table 2_SupplementalTable1_Table3a_LogisticRegression&TreeModel_PrimaryAnalysis.Rmd` contains Rmd code to perform the primary predction analysis using logisitc regression model and conditional classification tree model. 
