@@ -1,5 +1,5 @@
 # EHR_SOFA
-This repository copntains R code for manuscript "This repository copntains R code for manuscript "Mapping a Pandemic: SARS-CoV-2 Seropositivity in the United States"
+This repository copntains R code for manuscript "This repository copntains R code for manuscript "Pre-intubation SOFA Score for Predicting COVID-19 Mortality: External Validation using EHR from 86 U.S. Healthcare Systems to Appraise Current Ventilator Triage Algorithms"
 
 The main data collected from the study is not available at this time; therefore the R code is provided only to give a detailed record of how the main analyses were done, and without the data file that code cannot be run to recreate tables and figures in the manuscript. 
 
