@@ -1,0 +1,759 @@
+---
+title: "EHR SOFA --- Table 2b and 3c, and more"
+subtitle: "Sensitivity analysis, excluded patients with CKD & ESRD at admission"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  word_document:
+    reference_docx: "H:\\word rMarkDown template.docx"
+---
+
+```{r global_options, include=FALSE}
+library(partykit)
+library(dplyr)
+library(pROC)
+library(ROCR)
+library(caret)
+library(RColorBrewer)
+library(flextable)
+library(rmarkdown)
+library(knitr)
+library(readr)
+
+library(givitiR)
+library(gridExtra)
+library(ggplot2)
+
+library(gtsummary)
+library(flextable)
+library(officer)
+
+load(here::here("FirstMV_20JUL2021_final.RData"))
+
+opts_chunk$set(fig.width=10, fig.height=8,echo=FALSE, warning=FALSE, message=FALSE, comment = NA)
+```
+
+```{r package_options, include=FALSE}
+opts_knit$set(progress = TRUE, verbose = TRUE)
+```
+
+```{r}
+FirstMV.select <- FirstMV.select.NotCKDESRD
+FirstMVdata.train<- FirstMVdata.train.NotCKDESRD
+FirstMVdata.test<- FirstMVdata.test.NotCKDESRD
+
+rm(list=setdiff(ls(), c("FirstMV.select","FirstMVdata.test","FirstMVdata.train")))
+
+FirstMV.select <- FirstMV.select%>%mutate_if(is.character, as.factor)
+FirstMVdata.train <- FirstMVdata.train%>%mutate_if(is.character, as.factor)
+FirstMVdata.test <- FirstMVdata.test%>%mutate_if(is.character, as.factor)
+
+```
+
+
+```{r BaselineSummaryIntu, eval=FALSE}
+## Baseline characteristic table
+
+### Overall
+baseline_covariate <- FirstMVdata.train%>%
+  bind_rows(FirstMVdata.test)%>%
+  mutate(age65 = ifelse(age_cat %in% c("65-74", "75+"), ">=65", "<65"),
+         age65 = factor(age65, levels=c( "<65",">=65")), 
+         Sex = factor(GENDER, levels = c("Female", "Male")),
+         outcome = ifelse(death=="discharged","Alive","Dead"))%>%
+ select(AGE,age65, Sex, Diabetes, Hypertension=Hyptertension,Obesity =obesity_poa_cdc,
+        PreIntubationSOFA=Pre1day_total_score_num_imp,
+        contains("Pre1day"),
+        PreIntubation_SOFACategory =FourGrp_Pre1day_total_score_num_imp,
+        ElixhauserScore, outcome)
+
+baseTable_overall <-tbl_summary(baseline_covariate,
+                              by=outcome,
+              type = list(c(AGE, PreIntubationSOFA,
+                            Pre1day_bilirubin_sofa_points_num_imp,Pre1day_creatinine_sofa_points_num_imp,
+                            Pre1day_platelet_sofa_points_num_imp,Pre1day_gcs_sofa_points_num_imp,
+                            Pre1day_cardiovascular_sofa_points_num_imp,Pre1day_respiratory_sofa_points_num_imp,
+                            ElixhauserScore) ~ "continuous2"),
+              label = list(age65 ~ "Age (<65, >=65)",
+                           Diabetes ~ "Diabetes Mellitus",
+                           Hypertension ~ "Hypertension",
+                           Obesity ~ "Obesity",
+                           Pre1day_bilirubin_sofa_points_num_imp ~ "Pre-intubation, Renal",
+                           Pre1day_creatinine_sofa_points_num_imp ~ "Pre-intubation, Hepatic",
+                           Pre1day_platelet_sofa_points_num_imp ~ "Pre-intubation, Coagulation",
+                           Pre1day_gcs_sofa_points_num_imp ~ "Pre-intubation, Neurologic",
+                           Pre1day_cardiovascular_sofa_points_num_imp ~ "Pre-intubation, Cardiovascular",
+                           Pre1day_respiratory_sofa_points_num_imp ~ "Pre-intubation, Respiratory"),
+              statistic = list(all_continuous() ~ c("{N_nonmiss}",
+                                               "{mean} ({sd})",
+                                               "{median} ({p25}, {p75})", 
+                                               "{min}, {max}"),
+                               all_categorical() ~ "{n}/{N} ({p}%)"),
+              digits = all_continuous() ~ 2,
+              missing_text = "Unknown"
+)%>%
+  add_overall()%>%
+  bold_labels()%>%
+  italicize_levels()%>%
+  add_p()%>%
+  as_flex_table()
+
+
+
+### training set
+baseline_covariate_train <- FirstMVdata.train%>%
+  mutate(age65 = ifelse(age_cat %in% c("65-74", "75+"), ">=65", "<65"),
+         age65 = factor(age65, levels=c( "<65",">=65")), 
+         Sex = factor(GENDER, levels = c("Female", "Male")),
+         outcome = ifelse(death=="discharged","Alive","Dead"))%>%
+ select(AGE,age65, Sex, Diabetes, Hypertension=Hyptertension,Obesity =obesity_poa_cdc,
+        PreIntubationSOFA=Pre1day_total_score_num_imp,
+        contains("Pre1day"),
+        PreIntubation_SOFACategory =FourGrp_Pre1day_total_score_num_imp,
+        ElixhauserScore, outcome)
+
+baseTable_train <-tbl_summary(baseline_covariate_train,
+                              by=outcome,
+              type = list(c(AGE, PreIntubationSOFA,
+                            Pre1day_bilirubin_sofa_points_num_imp,Pre1day_creatinine_sofa_points_num_imp,
+                            Pre1day_platelet_sofa_points_num_imp,Pre1day_gcs_sofa_points_num_imp,
+                            Pre1day_cardiovascular_sofa_points_num_imp,Pre1day_respiratory_sofa_points_num_imp,
+                            ElixhauserScore) ~ "continuous2"),
+              label = list(age65 ~ "Age (<65, >=65)",
+                           Diabetes ~ "Diabetes Mellitus",
+                           Hypertension ~ "Hypertension",
+                           Obesity ~ "Obesity",
+                           Pre1day_bilirubin_sofa_points_num_imp ~ "Pre-intubation, Renal",
+                           Pre1day_creatinine_sofa_points_num_imp ~ "Pre-intubation, Hepatic",
+                           Pre1day_platelet_sofa_points_num_imp ~ "Pre-intubation, Coagulation",
+                           Pre1day_gcs_sofa_points_num_imp ~ "Pre-intubation, Neurologic",
+                           Pre1day_cardiovascular_sofa_points_num_imp ~ "Pre-intubation, Cardiovascular",
+                           Pre1day_respiratory_sofa_points_num_imp ~ "Pre-intubation, Respiratory"),
+              statistic = list(all_continuous() ~ c("{N_nonmiss}",
+                                               "{mean} ({sd})",
+                                               "{median} ({p25}, {p75})", 
+                                               "{min}, {max}"),
+                               all_categorical() ~ "{n}/{N} ({p}%)"),
+              digits = all_continuous() ~ 2,
+              missing_text = "Unknown"
+)%>%
+  add_overall()%>%
+  bold_labels()%>%
+  italicize_levels()%>%
+  add_p()%>%
+  as_flex_table()
+
+
+### test
+baseline_covariate_test <- FirstMVdata.test%>%
+  mutate(age65 = ifelse(age_cat %in% c("65-74", "75+"), ">=65", "<65"),
+         age65 = factor(age65, levels=c( "<65",">=65")), 
+         Sex = factor(GENDER, levels = c("Female", "Male")),
+         outcome = ifelse(death=="discharged","Alive","Dead"))%>%
+ select(AGE,age65, Sex, Diabetes, Hypertension=Hyptertension,Obesity =obesity_poa_cdc,
+        PreIntubationSOFA=Pre1day_total_score_num_imp,
+        contains("Pre1day"),
+        PreIntubation_SOFACategory =FourGrp_Pre1day_total_score_num_imp,
+        ElixhauserScore, outcome)
+
+baseTable_test <-tbl_summary(baseline_covariate_test,
+                              by=outcome,
+              type = list(c(AGE, PreIntubationSOFA,
+                            Pre1day_bilirubin_sofa_points_num_imp,Pre1day_creatinine_sofa_points_num_imp,
+                            Pre1day_platelet_sofa_points_num_imp,Pre1day_gcs_sofa_points_num_imp,
+                            Pre1day_cardiovascular_sofa_points_num_imp,Pre1day_respiratory_sofa_points_num_imp,
+                            ElixhauserScore) ~ "continuous2"),
+              label = list(age65 ~ "Age (<65, >=65)",
+                           Diabetes ~ "Diabetes Mellitus",
+                           Hypertension ~ "Hypertension",
+                           Obesity ~ "Obesity",
+                           Pre1day_bilirubin_sofa_points_num_imp ~ "Pre-intubation, Renal",
+                           Pre1day_creatinine_sofa_points_num_imp ~ "Pre-intubation, Hepatic",
+                           Pre1day_platelet_sofa_points_num_imp ~ "Pre-intubation, Coagulation",
+                           Pre1day_gcs_sofa_points_num_imp ~ "Pre-intubation, Neurologic",
+                           Pre1day_cardiovascular_sofa_points_num_imp ~ "Pre-intubation, Cardiovascular",
+                           Pre1day_respiratory_sofa_points_num_imp ~ "Pre-intubation, Respiratory"),
+              statistic = list(all_continuous() ~ c("{N_nonmiss}",
+                                               "{mean} ({sd})",
+                                               "{median} ({p25}, {p75})", 
+                                               "{min}, {max}"),
+                               all_categorical() ~ "{n}/{N} ({p}%)"),
+              digits = all_continuous() ~ 2,
+              missing_text = "Unknown"
+)%>%
+  add_overall()%>%
+  bold_labels()%>%
+  italicize_levels()%>%
+  add_p()%>%
+  as_flex_table()
+
+my_basetable<-read_docx()%>%
+    body_add_par("Patient Characteristics, training set", style = "heading 2")%>%
+    body_add_flextable(baseTable_train)%>%
+    body_end_section_landscape()%>%
+  
+  body_add_par("Patient Characteristics, validation set", style = "heading 2")%>%
+    body_add_flextable(baseTable_test)%>%
+    body_end_section_landscape()%>%
+  
+  body_add_par("Patient Characteristics, training + validation set", style = "heading 2")%>%
+    body_add_flextable(baseTable_overall)%>%
+    body_end_section_landscape()
+  
+
+print(my_basetable, target = paste0("Characteristics table of patients started intubation after admission_removedESRD&CKD.docx"))
+
+```
+
+
+
+## Conditional Tree
+
+```{r}
+
+myTreeFunc <- function(var,...){
+  
+set.seed(123)
+temp0 <- (ctree(death~.,data=FirstMV.select%>%select(...),minbucket=1000))
+
+plot(temp0, tp_args = list(fill =c("darkgreen","red")))
+
+# Evaluate model performance On training set
+prob.discharge <- predict(temp0, newdata=FirstMVdata.train, type="prob",simplify=T)[,2]
+roc.train <- roc(FirstMVdata.train$death, prob.discharge)
+ci.train <- ci.auc(roc.train)
+auc.train <- paste0(round(as.numeric(roc.train$auc),3), " (",round(as.numeric(ci.train)[1],3),",",round(as.numeric(ci.train)[3],3),")")
+
+# evaluate model performance On test set
+prob.discharge <- predict(temp0, newdata=FirstMVdata.test, type="prob",simplify=T)[,2]
+roc.test <- roc(FirstMVdata.test$death, prob.discharge)
+ci.test<- ci.auc(roc.test)
+auc.test <- paste0(round(as.numeric(roc.test$auc),3), " (",round(as.numeric(ci.test)[1],3),",",round(as.numeric(ci.test)[3],3),")")
+
+# confusion matrix 
+# predict.discharge <- predict(temp0, newdata=FirstMVdata.test, type="response",simplify=T)
+# CM <-confusionMatrix(as.factor(FirstMVdata.test$death),predict.discharge)
+# CM$table
+out <- data.frame(Variable = var,AUC.train = auc.train, AUC.test = auc.test)
+return(kable(out))
+}
+```
+
+
+
+### SOFA + all components
+
+```{r}
+myTreeFunc(var = "SOFA + all components" ,contains("Pre1day"), death)
+```
+
+
+### SOFA alone
+
+```{r}
+myTreeFunc(var = "SOFA" ,Pre1day_total_score_num_imp, death)
+```
+
+
+### Categorical SOFA alone
+
+```{r}
+myTreeFunc(var = "SOFA categories" ,FourGrp_Pre1day_total_score_num_imp, death)
+```
+
+
+### Pulmonary sofa alone
+
+```{r}
+myTreeFunc(var = "Pulmonary" ,Pre1day_respiratory_sofa_points_num_imp, death)
+```
+
+
+### Renal sofa alone
+
+```{r}
+myTreeFunc(var = "Renal" ,Pre1day_bilirubin_sofa_points_num_imp, death)
+```
+
+### Heme sofa alone
+
+```{r}
+myTreeFunc(var = "Heme" ,Pre1day_platelet_sofa_points_num_imp, death)
+```
+
+### Neuro sofa alone
+
+```{r}
+myTreeFunc(var = "Neuro" ,Pre1day_gcs_sofa_points_num_imp, death)
+```
+
+### Liver sofa alone
+
+```{r}
+myTreeFunc(var = "Liver" ,Pre1day_creatinine_sofa_points_num_imp, death)
+```
+
+### Cardio sofa alone
+
+```{r}
+myTreeFunc(var = "Cardio" ,Pre1day_cardiovascular_sofa_points_num_imp, death)
+```
+
+
+
+
+
+### SOFA + all components + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "SOFA & all components + covariates" ,contains("Pre1day"), AGE, GENDER, Obesity, Diabetes, Hyptertension,death)
+```
+
+
+### SOFA + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "SOFA + covariates" ,Pre1day_total_score_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+
+### Pulmonary sofa + age + gender + obesity +diabetes + hypertension 
+
+```{r}
+myTreeFunc(var = "Pulmonary sofa + covariates" ,Pre1day_respiratory_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+
+### Renal sofa + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "Renal sofa + covariates" ,Pre1day_bilirubin_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+### Heme sofa + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "Heme sofa + covariates" ,Pre1day_platelet_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+### Neuro sofa + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "Neuro sofa + covariates" ,Pre1day_gcs_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+### Liver sofa + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "Liver sofa + covariates" ,Pre1day_creatinine_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+### Cardio sofa + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "Cardio sofa + covariates" ,Pre1day_cardiovascular_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+
+
+### age
+
+```{r}
+myTreeFunc(var = "age" ,AGE, death)
+```
+
+### age + SOFA
+
+```{r}
+myTreeFunc(var = "age + SOFA" ,AGE, Pre1day_total_score_num_imp, death)
+```
+
+### age + Categorical SOFA
+
+```{r}
+myTreeFunc(var = "age + Categorical SOFA" ,FourGrp_Pre1day_total_score_num_imp, AGE, death)
+```
+
+###  age + elixhauser score
+
+```{r}
+myTreeFunc(var = "age + elixhauser score" ,AGE, ElixhauserScore, death)
+```
+
+###  age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "covariates" ,AGE, GENDER, Obesity, Diabetes, Hyptertension,death)
+```
+
+### SOFA + elixhauser score
+
+```{r}
+myTreeFunc(var = "SOFA + elixhauser score" ,Pre1day_total_score_num_imp, ElixhauserScore,death)
+```
+
+### Categories SOFA + elixhauser score
+
+```{r}
+myTreeFunc(var = "Categories SOFA + elixhauser score" ,FourGrp_Pre1day_total_score_num_imp, ElixhauserScore,death)
+```
+
+### SOFA + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "SOFA + age + elixhauser score" ,Pre1day_total_score_num_imp, AGE, ElixhauserScore,death)
+```
+
+### SOFA + all components + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "SOFA + all components + age + elixhauser score" ,contains("Pre1day"), AGE, ElixhauserScore,death)
+```
+
+
+### Pulmonary sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Pulmonary sofa + age + elixhauser score" ,Pre1day_respiratory_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+
+### Renal sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Renal sofa + age + elixhauser score" ,Pre1day_bilirubin_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+### Heme sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Heme sofa + age + elixhauser score" ,Pre1day_platelet_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+### Neuro sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Neuro sofa + age + elixhauser score" ,Pre1day_gcs_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+### Liver sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Liver sofa + age + elixhauser score" ,Pre1day_creatinine_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+### Cardio sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Cardio sofa + age + elixhauser score" ,Pre1day_cardiovascular_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+
+
+
+## GLM model
+
+```{r}
+myGLMFunc <- function(var,...){
+  
+glm0 <- glm(death~ .,data=FirstMV.select%>%select(...),family=binomial())
+glmout <- broom::tidy(glm0, exponentiate = TRUE, conf.int=TRUE )%>%
+   mutate_if(is.numeric, round, 2)%>%
+  filter(term!="(Intercept)")%>%
+  mutate(OR = paste0(round(estimate, 2), " (",round(conf.low,2),", ",round(conf.high,3),")"))
+
+# Evaluate model performance On training set
+prob.discharge <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+roc.train <-roc(FirstMVdata.train$death, prob.discharge)
+ci.train <- ci.auc(roc.train)
+auc.train <- paste0(round(as.numeric(roc.train$auc),2), " (",round(as.numeric(ci.train)[1],2),",",round(as.numeric(ci.train)[3],2),")")
+
+# Evaluate model performance On test set
+prob.discharge <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+roc.test <- roc(FirstMVdata.test$death, prob.discharge)
+ci.test<- ci.auc(roc.test)
+auc.test <- paste0(round(as.numeric(roc.test$auc),2), " (",round(as.numeric(ci.test)[1],2),",",round(as.numeric(ci.test)[3],2),")")
+
+out <- data.frame(Variable = var,AUC.train = auc.train, AUC.test = auc.test, term = glmout$term, OR = glmout$OR)
+return(kable(out))
+}
+```
+
+### SOFA alone
+
+```{r}
+myGLMFunc(var = "SOFA", Pre1day_total_score_num_imp, death)
+```
+
+### Categorical SOFA alone
+
+```{r}
+myGLMFunc(var = "Categorical SOFA", FourGrp_Pre1day_total_score_num_imp, death)
+```
+
+### Pulmonary +Renal + Heme + Neuro + Liver + Cardio 
+
+```{r}
+myGLMFunc(var = "All SOFA components", contains("Pre1day"),-Pre1day_total_score_num_imp, -FourGrp_Pre1day_total_score_num_imp,death)
+```
+
+### SOFA + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myGLMFunc(var = "SOFA + covariates", Pre1day_total_score_num_imp, AGE, GENDER, Obesity, Diabetes, Hyptertension,death)
+```
+
+### Pulmonary +Renal + Heme + Neuro + Liver + Cardio + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myGLMFunc(var = "All SOFA components + covariates", contains("Pre1day"),-Pre1day_total_score_num_imp,-FourGrp_Pre1day_total_score_num_imp,
+          AGE, GENDER, Obesity, Diabetes, Hyptertension,death)
+```
+
+### SOFA + age + elixhauser score
+
+```{r}
+myGLMFunc(var = "SOFA + age + elixhauser score", Pre1day_total_score_num_imp, AGE, ElixhauserScore, death)
+```
+
+### Pulmonary +Renal + Heme + Neuro + Liver + Cardio + age + elixhauser score
+
+```{r}
+myGLMFunc(var = "SOFA components + age + elixhauser score", contains("Pre1day"),-Pre1day_total_score_num_imp,-FourGrp_Pre1day_total_score_num_imp,
+          AGE, ElixhauserScore,death)
+```
+
+### age
+
+```{r}
+myGLMFunc(var = "age", AGE, death)
+```
+
+### age + SOFA
+
+```{r}
+myGLMFunc(var = "age + SOFA", AGE, Pre1day_total_score_num_imp, death)
+```
+
+### age + Categories SOFA
+
+```{r}
+myGLMFunc(var = "age + Categories SOFA", AGE, FourGrp_Pre1day_total_score_num_imp, death)
+```
+
+### age + Elixhauser score
+
+```{r}
+myGLMFunc(var = "age + Elixhauser score",  AGE, ElixhauserScore, death)
+```
+
+### SOFA + Elixhauser score
+
+```{r}
+myGLMFunc(var = "SOFA + Elixhauser score", Pre1day_total_score_num_imp, ElixhauserScore,death)
+```
+
+### Categories SOFA + Elixhauser score
+
+```{r}
+myGLMFunc(var = "Categories SOFA + Elixhauser score", FourGrp_Pre1day_total_score_num_imp, ElixhauserScore, death)
+```
+
+
+
+## Calibration plot
+
+Produced calibration plots for logistic regression models using Age, SOFA, SOFA categories, SOFA + Age, or SOFA + Covariates as the regressors. 
+
+```{r}
+FirstMVdata.train<- FirstMVdata.train%>%
+  mutate(Outcome = case_when(
+    death =="deceased" ~ 1,
+    death == "discharged" ~ 0
+  ))
+
+FirstMV.select<- FirstMV.select%>%
+  mutate(Outcome = case_when(
+    death =="deceased" ~ 1,
+    death == "discharged" ~ 0
+  ))
+
+FirstMVdata.test<- FirstMVdata.test%>%
+  mutate(Outcome = case_when(
+    death =="deceased" ~ 1,
+    death == "discharged" ~ 0
+  ))
+
+### SOFA alone
+glm0 <- glm(Outcome~ .,data=FirstMV.select%>%select(Pre1day_total_score_num_imp, Outcome),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+
+cb.SOFA <- givitiCalibrationBelt(o = FirstMVdata.train$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.SOFA.test <- givitiCalibrationBelt(o = FirstMVdata.test$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+roc.train.sofa <- roc(FirstMVdata.train$Outcome, prob.discharge.train, percent=TRUE)
+roc.test.sofa <- roc(FirstMVdata.test$Outcome, prob.discharge.test, percent=TRUE)
+
+
+### SOFA categories
+glm0 <- glm(Outcome~ .,data=FirstMV.select%>%select(FourGrp_Pre1day_total_score_num_imp, Outcome)%>%
+              mutate(FourGrp_Pre1day_total_score_num_imp= as.factor(FourGrp_Pre1day_total_score_num_imp)),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+
+cb.SOFACate <- givitiCalibrationBelt(o = FirstMVdata.train$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.SOFACate.test <- givitiCalibrationBelt(o = FirstMVdata.test$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+roc.train.sofaCat <- roc(FirstMVdata.train$Outcome, prob.discharge.train, percent=TRUE)
+roc.test.sofaCat <- roc(FirstMVdata.test$Outcome, prob.discharge.test, percent=TRUE)
+
+
+### SOFA +Age
+glm0 <- glm(Outcome~ .,data=FirstMV.select%>%select(Pre1day_total_score_num_imp, AGE, Outcome),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+
+cb.SOFA.Age <- givitiCalibrationBelt(o = FirstMVdata.train$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.SOFA.Age.test <- givitiCalibrationBelt(o = FirstMVdata.test$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+roc.train.sofaAge <- roc(FirstMVdata.train$Outcome, prob.discharge.train, percent=TRUE)
+roc.test.sofaAge <- roc(FirstMVdata.test$Outcome, prob.discharge.test, percent=TRUE)
+
+
+### SOFA + Covariates (age + gender + obesity +diabetes + hypertension)
+glm0 <- glm(Outcome~ .,data=FirstMV.select%>%select(Pre1day_total_score_num_imp, AGE, GENDER, Obesity, Diabetes, Hyptertension,Outcome),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+
+cb.SOFA.Cov <- givitiCalibrationBelt(o = FirstMVdata.train$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.SOFA.Cov.test <- givitiCalibrationBelt(o = FirstMVdata.test$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+
+### Age
+glm0 <- glm(Outcome~ .,data=FirstMV.select%>%select(AGE, Outcome),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+
+cb.Age <- givitiCalibrationBelt(o = FirstMVdata.train$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.Age.test <- givitiCalibrationBelt(o = FirstMVdata.test$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+roc.train.age <- roc(FirstMVdata.train$Outcome, prob.discharge.train, percent=TRUE)
+roc.test.age <- roc(FirstMVdata.test$Outcome, prob.discharge.test, percent=TRUE)
+
+
+pdf("CalibrationPlot_OnTrainTest_RemovedESRD&CKD.pdf", height = 8, width = 8)
+
+plot(cb.SOFA, main = "SOFA (continuous), training set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+plot(cb.SOFA.test, main = "SOFA (continuous), validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+plot(cb.SOFACate, main = "SOFA categories, training set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+plot(cb.SOFACate.test, main = "SOFA categories, validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+
+plot(cb.SOFA.Age, main = "SOFA + Age, training set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+plot(cb.SOFA.Age.test, main = "SOFA + Age, validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+
+plot(cb.SOFA.Cov, main = "SOFA + Covariates (age + gender + obesity +diabetes + hypertension), training set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+plot(cb.SOFA.Cov.test, main = "SOFA + Covariates (age + gender + obesity +diabetes + hypertension), validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+plot(cb.Age, main = "Age, training set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+plot(cb.Age.test, main = "Age, validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+dev.off()
+```
+
+
+
+## ROC plot
+
+Generated ROC curves for continuous SOFA, categorized SOFA, Age alone and SOFA + Age
+
+```{r}
+### training set
+
+# test AUC between two ROC curves
+roc.test(roc.train.sofa, roc.train.sofaCat)
+roc.test(roc.train.sofa, roc.train.sofaAge)
+roc.test(roc.train.age, roc.train.sofaAge, paired = FALSE)
+
+# test set
+roc.test(roc.test.sofa, roc.test.sofaCat)
+roc.test(roc.test.sofa, roc.test.sofaAge)
+roc.test(roc.test.age, roc.test.sofaAge)
+
+
+
+pdf("ROC for mortality among ventilated_RemovedESRD&CKD.pdf", width = 8, height = 8)
+
+ggroc(list("SOFA (AUC=65.6%)" = roc.train.sofa,
+           "SOFA Categories (AUC=54.0%)" = roc.train.sofaCat,
+           "Age (AUC=71.4%)" = roc.train.age,
+           "SOFA + Age (AUC=74.7%)" = roc.train.sofaAge
+           ), 
+      size=1.5, aes = c("linetype","color"), alpha=1) +
+  theme_bw(base_size = 14) +
+  geom_abline(slope = 1, intercept =100)+
+  scale_color_manual(values =c("#440154FF", "#6DCD59FF","orange", "royalblue"))+
+  scale_linetype_manual(values=c(1,1,1,1))+
+  theme(legend.position = "bottom",
+        legend.title = element_blank()) +
+  guides(color=guide_legend(nrow=2, byrow=TRUE))+
+  labs(y = "Proportion classified as dead among actual dead",
+       x = "Proportion classified as alive among actual alive", 
+       title = "ROC for in-hospital mortality among ventilated --- training set")+
+  geom_text(aes(x=25, y=40, label="SOFA vs. SOFA Categories (p-value <0.001)"), color="black", size=5)+
+  geom_text(aes(x=25, y=30, label="SOFA vs. SOFA+Age (p-value <0.001)"), color="black", size=5)+
+  geom_text(aes(x=25, y=20, label="Age vs. SOFA+Age (p-value <0.001)"), color="black", size=5)
+
+
+ggroc(list("SOFA (AUC=65.5%)" = roc.test.sofa,
+           "SOFA Categories (AUC=53.6%)" = roc.test.sofaCat,
+           "Age (AUC=71.1%)" = roc.test.age,
+           "SOFA + Age (AUC=74.1%)" = roc.test.sofaAge), size=1.5, aes = c("linetype","color"), alpha=1) +
+  theme_bw(base_size = 14) +
+  geom_abline(slope = 1, intercept =100)+
+  scale_color_manual(values =c("#440154FF", "#6DCD59FF","orange", "royalblue"))+
+  scale_linetype_manual(values=c(1,1,1,1))+
+  theme(legend.position = "bottom",
+        legend.title = element_blank()) +
+  guides(color=guide_legend(nrow=2, byrow=TRUE))+
+  labs(y = "Proportion classified as dead among actual dead",
+       x = "Proportion classified as alive among actual alive", 
+       title = "ROC for in-hospital mortality among ventilated --- validation set")+
+  geom_text(aes(x=25, y=40, label="SOFA vs. SOFA Categories (p-value <0.001)"), color="black", size=5)+
+  geom_text(aes(x=25, y=30, label="SOFA vs. SOFA+Age (p-value <0.001)"), color="black", size=5)+
+  geom_text(aes(x=25, y=20, label="Age vs. SOFA+Age (p-value <0.001)"), color="black", size=5)
+
+dev.off()
+
+
+
+```
+
+

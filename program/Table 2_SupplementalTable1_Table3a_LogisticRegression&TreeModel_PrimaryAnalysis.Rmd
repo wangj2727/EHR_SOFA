@@ -1,0 +1,443 @@
+---
+title: "EHR SOFA --- Table 2, Supplemental Table 3a"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  word_document:
+    reference_docx: "H:\\word rMarkDown template.docx"
+---
+
+```{r global_options, include=FALSE}
+library(partykit)
+library(dplyr)
+library(pROC)
+library(ROCR)
+library(caret)
+library(RColorBrewer)
+library(flextable)
+library(rmarkdown)
+library(knitr)
+library(readr)
+
+library(givitiR)
+library(gridExtra)
+library(ggplot2)
+
+library(gtsummary)
+library(flextable)
+library(officer)
+
+load(here::here("FirstMV_20JUL2021_final.RData"))
+
+opts_chunk$set(fig.width=10, fig.height=8,echo=FALSE, warning=FALSE, message=FALSE, comment = NA)
+```
+
+```{r package_options, include=FALSE}
+opts_knit$set(progress = TRUE, verbose = TRUE)
+```
+
+
+## Conditional Tree
+
+```{r}
+
+FirstMV.select <- FirstMV.select%>%mutate_if(is.character, as.factor)
+FirstMVdata.train <- FirstMVdata.train%>%mutate_if(is.character, as.factor)
+FirstMVdata.test <- FirstMVdata.test%>%mutate_if(is.character, as.factor)
+
+
+myTreeFunc <- function(var,...){
+  
+set.seed(123)
+temp0 <- (ctree(death~.,data=FirstMV.select%>%select(...),minbucket=1000))
+
+plot(temp0, tp_args = list(fill =c("darkgreen","red")))
+
+# Evaluate model performance On training set
+prob.discharge <- predict(temp0, newdata=FirstMVdata.train, type="prob",simplify=T)[,2]
+roc.train <- roc(FirstMVdata.train$death, prob.discharge)
+ci.train <- ci.auc(roc.train)
+auc.train <- paste0(round(as.numeric(roc.train$auc),3), " (",round(as.numeric(ci.train)[1],3),",",round(as.numeric(ci.train)[3],3),")")
+
+# evaluate model performance On test set
+prob.discharge <- predict(temp0, newdata=FirstMVdata.test, type="prob",simplify=T)[,2]
+roc.test <- roc(FirstMVdata.test$death, prob.discharge)
+ci.test<- ci.auc(roc.test)
+auc.test <- paste0(round(as.numeric(roc.test$auc),3), " (",round(as.numeric(ci.test)[1],3),",",round(as.numeric(ci.test)[3],3),")")
+
+# confusion matrix 
+# predict.discharge <- predict(temp0, newdata=FirstMVdata.test, type="response",simplify=T)
+# CM <-confusionMatrix(as.factor(FirstMVdata.test$death),predict.discharge)
+# CM$table
+out <- data.frame(Variable = var,AUC.train = auc.train, AUC.test = auc.test)
+return(kable(out))
+}
+```
+
+
+
+### SOFA + all components
+
+```{r}
+myTreeFunc(var = "SOFA + all components" ,contains("Pre1day"), death)
+```
+
+
+### SOFA alone
+
+```{r}
+myTreeFunc(var = "SOFA" ,Pre1day_total_score_num_imp, death)
+```
+
+
+### Categorical SOFA alone
+
+```{r}
+myTreeFunc(var = "SOFA categories" ,FourGrp_Pre1day_total_score_num_imp, death)
+```
+
+
+### Pulmonary sofa alone
+
+```{r}
+myTreeFunc(var = "Pulmonary" ,Pre1day_respiratory_sofa_points_num_imp, death)
+```
+
+
+### Renal sofa alone
+
+```{r}
+myTreeFunc(var = "Renal" ,Pre1day_bilirubin_sofa_points_num_imp, death)
+```
+
+### Heme sofa alone
+
+```{r}
+myTreeFunc(var = "Heme" ,Pre1day_platelet_sofa_points_num_imp, death)
+```
+
+### Neuro sofa alone
+
+```{r}
+myTreeFunc(var = "Neuro" ,Pre1day_gcs_sofa_points_num_imp, death)
+```
+
+### Liver sofa alone
+
+```{r}
+myTreeFunc(var = "Liver" ,Pre1day_creatinine_sofa_points_num_imp, death)
+```
+
+### Cardio sofa alone
+
+```{r}
+myTreeFunc(var = "Cardio" ,Pre1day_cardiovascular_sofa_points_num_imp, death)
+```
+
+
+
+
+
+### SOFA + all components + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "SOFA & all components + covariates" ,contains("Pre1day"), AGE, GENDER, Obesity, Diabetes, Hyptertension,death)
+```
+
+
+### SOFA + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "SOFA + covariates" ,Pre1day_total_score_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+
+### Pulmonary sofa + age + gender + obesity +diabetes + hypertension 
+
+```{r}
+myTreeFunc(var = "Pulmonary sofa + covariates" ,Pre1day_respiratory_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+
+### Renal sofa + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "Renal sofa + covariates" ,Pre1day_bilirubin_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+### Heme sofa + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "Heme sofa + covariates" ,Pre1day_platelet_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+### Neuro sofa + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "Neuro sofa + covariates" ,Pre1day_gcs_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+### Liver sofa + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "Liver sofa + covariates" ,Pre1day_creatinine_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+### Cardio sofa + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "Cardio sofa + covariates" ,Pre1day_cardiovascular_sofa_points_num_imp,AGE, GENDER, Obesity, Diabetes, Hyptertension, death)
+```
+
+
+
+### age
+
+```{r}
+myTreeFunc(var = "age" ,AGE, death)
+```
+
+### age + SOFA
+
+```{r}
+myTreeFunc(var = "age + SOFA" ,AGE, Pre1day_total_score_num_imp, death)
+```
+
+### age + Categorical SOFA
+
+```{r}
+myTreeFunc(var = "age + Categorical SOFA" ,FourGrp_Pre1day_total_score_num_imp, AGE, death)
+```
+
+###  age + elixhauser score
+
+```{r}
+myTreeFunc(var = "age + elixhauser score" ,AGE, ElixhauserScore, death)
+```
+
+###  age + gender + obesity +diabetes + hypertension
+
+```{r}
+myTreeFunc(var = "covariates" ,AGE, GENDER, Obesity, Diabetes, Hyptertension,death)
+```
+
+### SOFA + elixhauser score
+
+```{r}
+myTreeFunc(var = "SOFA + elixhauser score" ,Pre1day_total_score_num_imp, ElixhauserScore,death)
+```
+
+### Categories SOFA + elixhauser score
+
+```{r}
+myTreeFunc(var = "Categories SOFA + elixhauser score" ,FourGrp_Pre1day_total_score_num_imp, ElixhauserScore,death)
+```
+
+### SOFA + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "SOFA + age + elixhauser score" ,Pre1day_total_score_num_imp, AGE, ElixhauserScore,death)
+```
+
+### SOFA + all components + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "SOFA + all components + age + elixhauser score" ,contains("Pre1day"), AGE, ElixhauserScore,death)
+```
+
+
+### Pulmonary sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Pulmonary sofa + age + elixhauser score" ,Pre1day_respiratory_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+
+### Renal sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Renal sofa + age + elixhauser score" ,Pre1day_bilirubin_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+### Heme sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Heme sofa + age + elixhauser score" ,Pre1day_platelet_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+### Neuro sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Neuro sofa + age + elixhauser score" ,Pre1day_gcs_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+### Liver sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Liver sofa + age + elixhauser score" ,Pre1day_creatinine_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+### Cardio sofa + age + elixhauser score
+
+```{r}
+myTreeFunc(var = "Cardio sofa + age + elixhauser score" ,Pre1day_cardiovascular_sofa_points_num_imp, AGE, ElixhauserScore,death)
+```
+
+
+
+
+## GLM model
+
+```{r}
+myGLMFunc <- function(var,...){
+  
+glm0 <- glm(death~ .,data=FirstMV.select%>%select(...),family=binomial())
+glmout <- broom::tidy(glm0, exponentiate = TRUE, conf.int=TRUE )%>%
+   mutate_if(is.numeric, round, 2)%>%
+  filter(term!="(Intercept)")%>%
+  mutate(OR = paste0(round(estimate, 2), " (",round(conf.low,2),", ",round(conf.high,3),")"))
+
+# Evaluate model performance On training set
+prob.discharge <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+roc.train <-roc(FirstMVdata.train$death, prob.discharge)
+ci.train <- ci.auc(roc.train)
+auc.train <- paste0(round(as.numeric(roc.train$auc),2), " (",round(as.numeric(ci.train)[1],2),",",round(as.numeric(ci.train)[3],2),")")
+
+# Evaluate model performance On test set
+prob.discharge <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+roc.test <- roc(FirstMVdata.test$death, prob.discharge)
+ci.test<- ci.auc(roc.test)
+auc.test <- paste0(round(as.numeric(roc.test$auc),2), " (",round(as.numeric(ci.test)[1],2),",",round(as.numeric(ci.test)[3],2),")")
+
+out <- data.frame(Variable = var,AUC.train = auc.train, AUC.test = auc.test, term = glmout$term, OR = glmout$OR)
+return(kable(out))
+}
+```
+
+### SOFA alone
+
+```{r}
+myGLMFunc(var = "SOFA", Pre1day_total_score_num_imp, death)
+```
+
+### Categorical SOFA alone
+
+```{r}
+myGLMFunc(var = "Categorical SOFA", FourGrp_Pre1day_total_score_num_imp, death)
+```
+
+### Pulmonary 
+
+```{r}
+myGLMFunc(var = "Pulmonary sofa", Pre1day_respiratory_sofa_points_num_imp,death)
+```
+
+### Renal 
+
+```{r}
+myGLMFunc(var = "Renal sofa",Pre1day_bilirubin_sofa_points_num_imp,death)
+```
+
+###  Heme
+
+```{r}
+myGLMFunc(var = "Hemo sofa", Pre1day_platelet_sofa_points_num_imp,death)
+```
+
+### Neuro
+
+```{r}
+myGLMFunc(var = "Neuro sofa", Pre1day_gcs_sofa_points_num_imp,death)
+```
+
+### Liver
+
+```{r}
+myGLMFunc(var = "Liver sofa", Pre1day_creatinine_sofa_points_num_imp,death)
+```
+
+### Cardio 
+
+```{r}
+myGLMFunc(var = "Cardio sofa", Pre1day_cardiovascular_sofa_points_num_imp,death)
+```
+
+
+
+
+
+
+
+### Pulmonary +Renal + Heme + Neuro + Liver + Cardio 
+
+```{r}
+myGLMFunc(var = "All SOFA components", contains("Pre1day"),-Pre1day_total_score_num_imp, -FourGrp_Pre1day_total_score_num_imp,death)
+```
+
+### SOFA + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myGLMFunc(var = "SOFA + covariates", Pre1day_total_score_num_imp, AGE, GENDER, Obesity, Diabetes, Hyptertension,death)
+```
+
+### Pulmonary +Renal + Heme + Neuro + Liver + Cardio + age + gender + obesity +diabetes + hypertension
+
+```{r}
+myGLMFunc(var = "All SOFA components + covariates", contains("Pre1day"),-Pre1day_total_score_num_imp,-FourGrp_Pre1day_total_score_num_imp,
+          AGE, GENDER, Obesity, Diabetes, Hyptertension,death)
+```
+
+### SOFA + age + elixhauser score
+
+```{r}
+myGLMFunc(var = "SOFA + age + elixhauser score", Pre1day_total_score_num_imp, AGE, ElixhauserScore, death)
+```
+
+### Pulmonary +Renal + Heme + Neuro + Liver + Cardio + age + elixhauser score
+
+```{r}
+myGLMFunc(var = "SOFA components + age + elixhauser score", contains("Pre1day"),-Pre1day_total_score_num_imp,-FourGrp_Pre1day_total_score_num_imp,
+          AGE, ElixhauserScore,death)
+```
+
+### age
+
+```{r}
+myGLMFunc(var = "age", AGE, death)
+```
+
+### age + SOFA
+
+```{r}
+myGLMFunc(var = "age + SOFA", AGE, Pre1day_total_score_num_imp, death)
+```
+
+### age + Categories SOFA
+
+```{r}
+myGLMFunc(var = "age + Categories SOFA", AGE, FourGrp_Pre1day_total_score_num_imp, death)
+```
+
+### age + Elixhauser score
+
+```{r}
+myGLMFunc(var = "age + Elixhauser score",  AGE, ElixhauserScore, death)
+```
+
+### SOFA + Elixhauser score
+
+```{r}
+myGLMFunc(var = "SOFA + Elixhauser score", Pre1day_total_score_num_imp, ElixhauserScore,death)
+```
+
+### Categories SOFA + Elixhauser score
+
+```{r}
+myGLMFunc(var = "Categories SOFA + Elixhauser score", FourGrp_Pre1day_total_score_num_imp, ElixhauserScore, death)
+```
+
+
+
+
+
+
+

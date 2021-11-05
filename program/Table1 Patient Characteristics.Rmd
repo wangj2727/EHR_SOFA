@@ -1,0 +1,193 @@
+---
+title: "EHR SOFA --- Table 1 Patient Characteristics"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  word_document:
+    reference_docx: "H:\\word rMarkDown template.docx"
+---
+
+```{r global_options, include=FALSE}
+library(partykit)
+library(dplyr)
+library(pROC)
+library(ROCR)
+library(caret)
+library(RColorBrewer)
+library(flextable)
+library(rmarkdown)
+library(knitr)
+library(readr)
+
+library(givitiR)
+library(gridExtra)
+library(ggplot2)
+
+library(gtsummary)
+library(flextable)
+library(officer)
+
+load(here::here("FirstMV_20JUL2021_final.RData"))
+
+opts_chunk$set(fig.width=10, fig.height=8,echo=FALSE, warning=FALSE, message=FALSE, comment = NA)
+```
+
+```{r package_options, include=FALSE}
+opts_knit$set(progress = TRUE, verbose = TRUE)
+```
+
+
+```{r BaselineSummaryIntu}
+## Baseline characteristic table
+
+### Overall
+baseline_covariate <- FirstMVdata.train%>%
+  bind_rows(FirstMVdata.test)%>%
+  mutate(age65 = ifelse(age_cat %in% c("65-74", "75+"), ">=65", "<65"),
+         age65 = factor(age65, levels=c( "<65",">=65")), 
+         Sex = factor(GENDER, levels = c("Female", "Male")),
+         outcome = ifelse(death=="discharged","Alive","Dead"))%>%
+ select(AGE,age65, Sex, Diabetes, Hypertension=Hyptertension,Obesity =obesity_poa_cdc,
+        PreIntubationSOFA=Pre1day_total_score_num_imp,
+        contains("Pre1day"),
+        PreIntubation_SOFACategory =FourGrp_Pre1day_total_score_num_imp,
+        ElixhauserScore, outcome)
+
+baseTable_overall <-tbl_summary(baseline_covariate,
+                              by=outcome,
+              type = list(c(AGE, PreIntubationSOFA,
+                            Pre1day_bilirubin_sofa_points_num_imp,Pre1day_creatinine_sofa_points_num_imp,
+                            Pre1day_platelet_sofa_points_num_imp,Pre1day_gcs_sofa_points_num_imp,
+                            Pre1day_cardiovascular_sofa_points_num_imp,Pre1day_respiratory_sofa_points_num_imp,
+                            ElixhauserScore) ~ "continuous2"),
+              label = list(age65 ~ "Age (<65, >=65)",
+                           Diabetes ~ "Diabetes Mellitus",
+                           Hypertension ~ "Hypertension",
+                           Obesity ~ "Obesity",
+                           Pre1day_bilirubin_sofa_points_num_imp ~ "Pre-intubation, Renal",
+                           Pre1day_creatinine_sofa_points_num_imp ~ "Pre-intubation, Hepatic",
+                           Pre1day_platelet_sofa_points_num_imp ~ "Pre-intubation, Coagulation",
+                           Pre1day_gcs_sofa_points_num_imp ~ "Pre-intubation, Neurologic",
+                           Pre1day_cardiovascular_sofa_points_num_imp ~ "Pre-intubation, Cardiovascular",
+                           Pre1day_respiratory_sofa_points_num_imp ~ "Pre-intubation, Respiratory"),
+              statistic = list(all_continuous() ~ c("{N_nonmiss}",
+                                               "{mean} ({sd})",
+                                               "{median} ({p25}, {p75})", 
+                                               "{min}, {max}"),
+                               all_categorical() ~ "{n}/{N} ({p}%)"),
+              digits = all_continuous() ~ 2,
+              missing_text = "(# of Missing)"
+)%>%
+  add_overall()%>%
+  bold_labels()%>%
+  italicize_levels()%>%
+  add_p()%>%
+  as_flex_table()
+
+
+
+### training set
+baseline_covariate_train <- FirstMVdata.train%>%
+  mutate(age65 = ifelse(age_cat %in% c("65-74", "75+"), ">=65", "<65"),
+         age65 = factor(age65, levels=c( "<65",">=65")), 
+         Sex = factor(GENDER, levels = c("Female", "Male")),
+         outcome = ifelse(death=="discharged","Alive","Dead"))%>%
+ select(AGE,age65, Sex, Diabetes, Hypertension=Hyptertension,Obesity =obesity_poa_cdc,
+        PreIntubationSOFA=Pre1day_total_score_num_imp,
+        contains("Pre1day"),
+        PreIntubation_SOFACategory =FourGrp_Pre1day_total_score_num_imp,
+        ElixhauserScore, outcome)
+
+baseTable_train <-tbl_summary(baseline_covariate_train,
+                              by=outcome,
+              type = list(c(AGE, PreIntubationSOFA,
+                            Pre1day_bilirubin_sofa_points_num_imp,Pre1day_creatinine_sofa_points_num_imp,
+                            Pre1day_platelet_sofa_points_num_imp,Pre1day_gcs_sofa_points_num_imp,
+                            Pre1day_cardiovascular_sofa_points_num_imp,Pre1day_respiratory_sofa_points_num_imp,
+                            ElixhauserScore) ~ "continuous2"),
+              label = list(age65 ~ "Age (<65, >=65)",
+                           Diabetes ~ "Diabetes Mellitus",
+                           Hypertension ~ "Hypertension",
+                           Obesity ~ "Obesity",
+                           Pre1day_bilirubin_sofa_points_num_imp ~ "Pre-intubation, Renal",
+                           Pre1day_creatinine_sofa_points_num_imp ~ "Pre-intubation, Hepatic",
+                           Pre1day_platelet_sofa_points_num_imp ~ "Pre-intubation, Coagulation",
+                           Pre1day_gcs_sofa_points_num_imp ~ "Pre-intubation, Neurologic",
+                           Pre1day_cardiovascular_sofa_points_num_imp ~ "Pre-intubation, Cardiovascular",
+                           Pre1day_respiratory_sofa_points_num_imp ~ "Pre-intubation, Respiratory"),
+              statistic = list(all_continuous() ~ c("{N_nonmiss}",
+                                               "{mean} ({sd})",
+                                               "{median} ({p25}, {p75})", 
+                                               "{min}, {max}"),
+                               all_categorical() ~ "{n}/{N} ({p}%)"),
+              digits = all_continuous() ~ 2,
+              missing_text = "(# of Missing)"
+)%>%
+  add_overall()%>%
+  bold_labels()%>%
+  italicize_levels()%>%
+  add_p()%>%
+  as_flex_table()
+
+
+### test
+baseline_covariate_test <- FirstMVdata.test%>%
+  mutate(age65 = ifelse(age_cat %in% c("65-74", "75+"), ">=65", "<65"),
+         age65 = factor(age65, levels=c( "<65",">=65")), 
+         Sex = factor(GENDER, levels = c("Female", "Male")),
+         outcome = ifelse(death=="discharged","Alive","Dead"))%>%
+ select(AGE,age65, Sex, Diabetes, Hypertension=Hyptertension,Obesity =obesity_poa_cdc,
+        PreIntubationSOFA=Pre1day_total_score_num_imp,
+        contains("Pre1day"),
+        PreIntubation_SOFACategory =FourGrp_Pre1day_total_score_num_imp,
+        ElixhauserScore, outcome)
+
+baseTable_test <-tbl_summary(baseline_covariate_test,
+                              by=outcome,
+              type = list(c(AGE, PreIntubationSOFA,
+                            Pre1day_bilirubin_sofa_points_num_imp,Pre1day_creatinine_sofa_points_num_imp,
+                            Pre1day_platelet_sofa_points_num_imp,Pre1day_gcs_sofa_points_num_imp,
+                            Pre1day_cardiovascular_sofa_points_num_imp,Pre1day_respiratory_sofa_points_num_imp,
+                            ElixhauserScore) ~ "continuous2"),
+              label = list(age65 ~ "Age (<65, >=65)",
+                           Diabetes ~ "Diabetes Mellitus",
+                           Hypertension ~ "Hypertension",
+                           Obesity ~ "Obesity",
+                           Pre1day_bilirubin_sofa_points_num_imp ~ "Pre-intubation, Renal",
+                           Pre1day_creatinine_sofa_points_num_imp ~ "Pre-intubation, Hepatic",
+                           Pre1day_platelet_sofa_points_num_imp ~ "Pre-intubation, Coagulation",
+                           Pre1day_gcs_sofa_points_num_imp ~ "Pre-intubation, Neurologic",
+                           Pre1day_cardiovascular_sofa_points_num_imp ~ "Pre-intubation, Cardiovascular",
+                           Pre1day_respiratory_sofa_points_num_imp ~ "Pre-intubation, Respiratory"),
+              statistic = list(all_continuous() ~ c("{N_nonmiss}",
+                                               "{mean} ({sd})",
+                                               "{median} ({p25}, {p75})", 
+                                               "{min}, {max}"),
+                               all_categorical() ~ "{n}/{N} ({p}%)"),
+              digits = all_continuous() ~ 2,
+              missing_text = "(# of Missing)"
+)%>%
+  add_overall()%>%
+  bold_labels()%>%
+  italicize_levels()%>%
+  add_p()%>%
+  as_flex_table()
+
+my_basetable<-read_docx()%>%
+    body_add_par("Patient Characteristics, training set", style = "heading 2")%>%
+    body_add_flextable(baseTable_train)%>%
+    body_end_section_landscape()%>%
+  
+  body_add_par("Patient Characteristics, validation set", style = "heading 2")%>%
+    body_add_flextable(baseTable_test)%>%
+    body_end_section_landscape()%>%
+  
+  body_add_par("Patient Characteristics, training + validation set", style = "heading 2")%>%  ### This is Table 1
+    body_add_flextable(baseTable_overall)%>%
+    body_end_section_landscape()
+  
+
+print(my_basetable, target = paste0("Table 1: Patient Characteristics.docx"))
+
+```
+
+

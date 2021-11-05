@@ -1,0 +1,236 @@
+---
+title: "EHR SOFA --- Figure 2a+2b, Supplemental Figure 1, and ROC curve analysis"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  word_document:
+    reference_docx: "H:\\word rMarkDown template.docx"
+---
+
+```{r global_options, include=FALSE}
+library(partykit)
+library(dplyr)
+library(pROC)
+library(ROCR)
+library(caret)
+library(RColorBrewer)
+library(flextable)
+library(rmarkdown)
+library(knitr)
+library(readr)
+
+library(givitiR)
+library(gridExtra)
+library(ggplot2)
+
+library(gtsummary)
+library(flextable)
+library(officer)
+
+load(here::here("FirstMV_20JUL2021_final.RData"))
+
+opts_chunk$set(fig.width=10, fig.height=8,echo=FALSE, warning=FALSE, message=FALSE, comment = NA)
+```
+
+```{r package_options, include=FALSE}
+opts_knit$set(progress = TRUE, verbose = TRUE)
+```
+
+
+## Calibration plot
+
+Produced calibration plots for logistic regression models using Age, SOFA, SOFA categories, SOFA + Age, or SOFA + Covariates as the regressors. 
+
+```{r}
+FirstMVdata.train<- FirstMVdata.train%>%
+  mutate(Outcome = case_when(
+    death =="deceased" ~ 1,
+    death == "discharged" ~ 0
+  ))
+
+FirstMV.select<- FirstMV.select%>%
+  mutate(Outcome = case_when(
+    death =="deceased" ~ 1,
+    death == "discharged" ~ 0
+  ))
+
+FirstMVdata.test<- FirstMVdata.test%>%
+  mutate(Outcome = case_when(
+    death =="deceased" ~ 1,
+    death == "discharged" ~ 0
+  ))
+
+### SOFA alone
+glm0 <- glm(Outcome~ .,data=FirstMV.select%>%select(Pre1day_total_score_num_imp, Outcome),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+
+cb.SOFA <- givitiCalibrationBelt(o = FirstMVdata.train$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.SOFA.test <- givitiCalibrationBelt(o = FirstMVdata.test$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+roc.train.sofa <- roc(FirstMVdata.train$Outcome, prob.discharge.train, percent=TRUE)
+roc.test.sofa <- roc(FirstMVdata.test$Outcome, prob.discharge.test, percent=TRUE)
+
+
+### SOFA categories
+glm0 <- glm(Outcome~ .,data=FirstMV.select%>%select(FourGrp_Pre1day_total_score_num_imp, Outcome)%>%
+              mutate(FourGrp_Pre1day_total_score_num_imp= as.factor(FourGrp_Pre1day_total_score_num_imp)),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+
+cb.SOFACate <- givitiCalibrationBelt(o = FirstMVdata.train$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.SOFACate.test <- givitiCalibrationBelt(o = FirstMVdata.test$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+roc.train.sofaCat <- roc(FirstMVdata.train$Outcome, prob.discharge.train, percent=TRUE)
+roc.test.sofaCat <- roc(FirstMVdata.test$Outcome, prob.discharge.test, percent=TRUE)
+
+
+### SOFA +Age
+glm0 <- glm(Outcome~ .,data=FirstMV.select%>%select(Pre1day_total_score_num_imp, AGE, Outcome),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+
+cb.SOFA.Age <- givitiCalibrationBelt(o = FirstMVdata.train$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.SOFA.Age.test <- givitiCalibrationBelt(o = FirstMVdata.test$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+roc.train.sofaAge <- roc(FirstMVdata.train$Outcome, prob.discharge.train, percent=TRUE)
+roc.test.sofaAge <- roc(FirstMVdata.test$Outcome, prob.discharge.test, percent=TRUE)
+
+
+### SOFA + Covariates (age + gender + obesity +diabetes + hypertension)
+glm0 <- glm(Outcome~ .,data=FirstMV.select%>%select(Pre1day_total_score_num_imp, AGE, GENDER, Obesity, Diabetes, Hyptertension,Outcome),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+
+cb.SOFA.Cov <- givitiCalibrationBelt(o = FirstMVdata.train$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.SOFA.Cov.test <- givitiCalibrationBelt(o = FirstMVdata.test$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+
+### Age
+glm0 <- glm(Outcome~ .,data=FirstMV.select%>%select(AGE, Outcome),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+
+cb.Age <- givitiCalibrationBelt(o = FirstMVdata.train$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.Age.test <- givitiCalibrationBelt(o = FirstMVdata.test$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+roc.train.age <- roc(FirstMVdata.train$Outcome, prob.discharge.train, percent=TRUE)
+roc.test.age <- roc(FirstMVdata.test$Outcome, prob.discharge.test, percent=TRUE)
+
+
+pdf("CalibrationPlot_OnTrainTest_Main.pdf", height = 8, width = 8)
+
+plot(cb.SOFA, main = "SOFA (continuous), training set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+plot(cb.SOFA.test, main = "SOFA (continuous), validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+plot(cb.SOFACate, main = "SOFA categories, training set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+plot(cb.SOFACate.test, main = "SOFA categories, validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+
+plot(cb.SOFA.Age, main = "SOFA + Age, training set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+plot(cb.SOFA.Age.test, main = "SOFA + Age, validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+
+plot(cb.SOFA.Cov, main = "SOFA + Covariates (age + gender + obesity +diabetes + hypertension), training set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+plot(cb.SOFA.Cov.test, main = "SOFA + Covariates (age + gender + obesity +diabetes + hypertension), validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+plot(cb.Age, main = "Age, training set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+plot(cb.Age.test, main = "Age, validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+dev.off()
+```
+
+## ROC plot
+
+Generated ROC curves for continuous SOFA, categorized SOFA, Age alone and SOFA + Age
+
+```{r}
+### training set
+
+# test AUC between two ROC curves
+roc.test(roc.train.sofa, roc.train.sofaCat)
+roc.test(roc.train.sofa, roc.train.sofaAge)
+roc.test(roc.train.age, roc.train.sofaAge, paired = FALSE)
+
+
+pdf("ROC for mortality among ventilated train_Main.pdf", width = 8, height = 8)
+
+ggroc(list("SOFA (AUC=65.8%)" = roc.train.sofa,
+           "SOFA Categories (AUC=54.7%)" = roc.train.sofaCat,
+           "Age (AUC=71.1%)" = roc.train.age,
+           "SOFA + Age (AUC=74.7%)" = roc.train.sofaAge
+           ), 
+      size=1.5, aes = c("linetype","color"), alpha=1) +
+  theme_bw(base_size = 14) +
+  geom_abline(slope = 1, intercept =100)+
+  scale_color_manual(values =c("#440154FF", "#6DCD59FF","orange", "royalblue"))+
+  scale_linetype_manual(values=c(1,1,1,1))+
+  theme(legend.position = "bottom",
+        legend.title = element_blank()) +
+  guides(color=guide_legend(nrow=2, byrow=TRUE))+
+  labs(y = "Proportion classified as dead among actual dead",
+       x = "Proportion classified as alive among actual alive", 
+       title = "ROC for in-hospital mortality among ventilated")+
+  geom_text(aes(x=25, y=40, label="SOFA vs. SOFA Categories (p-value <0.001)"), color="black", size=5)+
+  geom_text(aes(x=25, y=30, label="SOFA vs. SOFA+Age (p-value <0.001)"), color="black", size=5)+
+  geom_text(aes(x=25, y=20, label="Age vs. SOFA+Age (p-value <0.001)"), color="black", size=5)
+
+dev.off()
+
+
+
+### test set
+roc.test(roc.test.sofa, roc.test.sofaCat)
+roc.test(roc.test.sofa, roc.test.sofaAge)
+roc.test(roc.test.age, roc.test.sofaAge)
+
+pdf("ROC for mortality among ventilated validation_Main.pdf", width = 8, height = 8)
+
+ggroc(list("SOFA (AUC=65.9%)" = roc.test.sofa,
+           "SOFA Categories (AUC=54.3%)" = roc.test.sofaCat,
+           "Age (AUC=70.8%)" = roc.test.age,
+           "SOFA + Age (AUC=74.2%)" = roc.test.sofaAge), size=1.5, aes = c("linetype","color"), alpha=1) +
+  theme_bw(base_size = 14) +
+  geom_abline(slope = 1, intercept =100)+
+  scale_color_manual(values =c("#440154FF", "#6DCD59FF","orange", "royalblue"))+
+  scale_linetype_manual(values=c(1,1,1,1))+
+  theme(legend.position = "bottom",
+        legend.title = element_blank()) +
+  guides(color=guide_legend(nrow=2, byrow=TRUE))+
+  labs(y = "Proportion classified as dead among actual dead",
+       x = "Proportion classified as alive among actual alive", 
+       title = "ROC for in-hospital mortality among ventilated")+
+  geom_text(aes(x=25, y=40, label="SOFA vs. SOFA Categories (p-value <0.001)"), color="black", size=5)+
+  geom_text(aes(x=25, y=30, label="SOFA vs. SOFA+Age (p-value <0.001)"), color="black", size=5)+
+  geom_text(aes(x=25, y=20, label="Age vs. SOFA+Age (p-value <0.001)"), color="black", size=5)
+
+dev.off()
+
+
+
+```
+
