@@ -1,7 +1,7 @@
 ### Project: EHR SOFA
 ### Purpose: Shaded plot of predicted prob of mortality based on glm and tree models, using age and total SOFA as the predictors
 ### Date: 20JUL2021
-### Author: Martha Nason, changed slightly by Jing Sang
+### Author: Martha Nason, changed slightly by Jing Wang
 ### Note: points represent the actual value of age and SOFA from training set (many dots were overlapped)
 #         background shade represents the predicted values (predicted using a user-defined small set of data for visualization purpose)
 
