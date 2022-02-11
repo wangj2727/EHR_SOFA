@@ -1,3 +1,4 @@
+
 library(dplyr)
 library(tidyr)
 library(tibble)
@@ -6,11 +7,12 @@ library(stringr)
 library(labelled)
 library(readr)
 library(readxl)
+library(here)
+library(lubridate)
 
 set.seed(202105)
 
-indir <- "C:\\Users\\wangj27\\Desktop\\SOFA\\"
-
+# indir <- "C:\\Users\\wangj27\\Desktop\\SOFA\\"
 # datacsv <- read_csv(paste0(indir, "data\\Final data\\byday_covid_2020q4.csv"))  ## size=320MB
 # saveRDS(datacsv, paste0(indir,"data\\byday_covid_2020q4.Rds"))  ### to speed up data importing, convert .csv to .Rds
 
@@ -20,16 +22,16 @@ indir <- "C:\\Users\\wangj27\\Desktop\\SOFA\\"
 ### By Day data
 ###
 ##############################
-dta0 <- readRDS(paste0(indir,"data\\Final data\\byday_covid_2020q4.Rds")) 
+dta0 <- readRDS(here("data/Final data\\byday_covid_2020q4.Rds")) 
 
-# # of obs=171290  (new N=1036419 -- 6 times)
+# # of obs=171290  (N=1036419)
 # check # encounters
-# length(unique(dta0$encounterid))  ---- N=15954 (new N=109285 - 7 times)
+# length(unique(dta0$encounterid))  ---- (N=109285)
 # check # tenant
-#length(unique(dta0$tenant))  --- N=57 (new N=86)
+#length(unique(dta0$tenant))  --- (N=86)
 
 ### incorporate labels from data dictionary data
-dta0_dict <- read_excel(paste0(indir,"data\\Final data\\byday data dictionary.xlsx"))
+dta0_dict <- read_excel(here("data/Final data\\byday data dictionary.xlsx"))
 dta1_dict<-dta0_dict%>%
   filter(variable %in% names(dta0))
 dta1 <- dta0%>%
@@ -42,20 +44,43 @@ var_label(dta1)<-dta1_dict$description
 ### Outcome data
 ###
 #################################
-outcome0 <- read_csv(paste0(indir,"data\\Final data\\covid_enc_variables_2020q4.csv"))
+outcome0 <- read_csv(here("data\\Final data\\covid_enc_variables_2020q4.csv"))
 # check # encounters
-#length(unique(outcome0$PAT_KEY))  ---- N=15954 (new N=109285)
+#length(unique(outcome0$PAT_KEY))  ---- (N=109285)
 # check # tenant
-#length(unique(outcome0$PROV_ID))  --- N=57 (new N=86)
+#length(unique(outcome0$PROV_ID))  --- (N=86)
 # check # medical records
-#length(unique(outcome0$MEDREC_KEY))  ---- N=15161 (new N=101985) --- # of participants
+#length(unique(outcome0$MEDREC_KEY))  ---- (N=101985) --- # of participants
 
 ### incorporate labels from data dictionary data
-outcome0_dict <- read_excel(paste0(indir,"data\\Final data\\data dictionary_cerner_latest_v1_jw.xlsx"),
+outcome0_dict <- read_excel(here("data\\Final data\\data dictionary_cerner_latest_v1_jw.xlsx"),
                             sheet=2)
 outcome1_dict<-outcome0_dict%>%filter(Variable %in% names(outcome0))
 outcome1 <- outcome0%>%select(outcome1_dict$Variable)
 var_label(outcome1)<-outcome1_dict$Description
+
+
+
+#################################
+###
+### update data about paper revision
+###
+# New variables are:
+# encountered: should allow you to merge this with the other data, PAT_KEY
+# long_vent: binary variable indicating presence of prolonged ventilation
+# or_vent: binary variable indicating mechanical ventilation associated with surgery
+# resp_fail: binary variable indicating coding for respiratory failure
+# arf_before_vent: binary variable indicating acute respiratory failure occurred before mechanical ventilation
+
+#################################
+revisonDta0 <- read_excel(here("data\\Final data\\new_variables_12.20.21.xlsx"),sheet=1)
+# check # encounters
+#length(unique(revisonDta0$encounterid))  ---- (N=109285)
+
+outcome2 <- outcome1%>%
+  full_join(revisonDta0, by=c("PAT_KEY"="encounterid"))
+
+#save(outcome2, file=here("data\\outcome2.RData"))
 
 
 ##########################################
@@ -70,18 +95,21 @@ selected_encouter <- outcome1%>%
   group_by(MEDREC_KEY)%>%
   slice_sample()
 
-outcome1 <-outcome1%>%
+outcome2 <-outcome2%>%
   filter(PAT_KEY %in% selected_encouter$PAT_KEY)
 
-### check how many pt readmitted ---- N=7300 patients had been readmitted
-ReAdmitted<- outcome0%>%
+ReAdmitted<- outcome1%>%
   select(PAT_KEY, MEDREC_KEY)%>%
   group_by(MEDREC_KEY)%>%
   mutate(num_dups = n(),
          dup_id = row_number()) %>%
   ungroup() %>%
   filter(dup_id > 1)%>%
-  distinct(MEDREC_KEY)
+  distinct(MEDREC_KEY, .keep_all = TRUE)
+### check how many pt readmitted 
+# sum(ReAdmitted$num_dups)-nrow(ReAdmitted)
+# dim(ReAdmitted)
+# N=6465 patients had been readmitted; 7300 observations (encounters) had been excluded from 13765 encounters;
 
 
 ##########################################
@@ -91,26 +119,26 @@ ReAdmitted<- outcome0%>%
 ##########################################
 ### split data into training and testing sets with 2:1 ratio, stratify by hospitals
 ### number of patients within each hospitals
-hosp_check <- outcome1%>%
+hosp_check <- outcome2%>%
   select(PROV_ID, PAT_KEY)%>%
   distinct(PAT_KEY, .keep_all = TRUE)%>%
   group_by(PROV_ID)%>%
   summarise(NumPT = n())
 
 # hosp_check$NumPT[hosp_check$NumPT<=15]
-#  15  5  2  1  3 11  2 10  1 15
-# beeswarm::beeswarm(hosp_check$NumPT, method="center", 
-#                    horizontal=TRUE, xlab="# of patients in each hospitals")
 
-outcome2<-outcome1%>%
+# beeswarm::beeswarm(log10(hosp_check$NumPT), method="center", 
+#                    horizontal=TRUE, xlab="# of patients in each hospitals (log10 scale)")
+
+outcome2<-outcome2%>%
   left_join(hosp_check, by="PROV_ID")%>%
-  mutate(Hosp_ID = ifelse(NumPT<=15, "Pooled", PROV_ID)) ### 10 hospital that have #pt <=15
+  mutate(Hosp_ID = ifelse(NumPT<=15, "Pooled", PROV_ID)) ### 10 hospitals that have #pt <=15
 
 # hosp_check2 <- outcome2%>%
 #   select(Hosp_ID, PAT_KEY)%>%
 #   distinct(PAT_KEY, .keep_all = TRUE)%>%
 #   group_by(Hosp_ID)%>%
-#   summarise(NumPT = n())
+#   summarise(NumPT = n()) ### confirmed that 10 hospitals had been combined into 1 "Pooled" category
 
 
 
@@ -122,6 +150,50 @@ test_data <- testing(dta_split)
 
 
 
+##########################################
+###
+### formulate data for patients with multiple admissions
+###
+##########################################
+
+ReAdmitted_Dta <- outcome1%>%
+  filter(MEDREC_KEY %in% ReAdmitted$MEDREC_KEY)%>%
+  select(PAT_KEY, MEDREC_KEY, ADM_MON, dnr_poa)  ### N=13765 encounters from 6565 patients
+
+ReAdmitted_Dta1 <- dta1%>%
+  filter(encounterid %in% ReAdmitted_Dta$PAT_KEY)%>%
+  full_join(ReAdmitted_Dta, by=c("encounterid"="PAT_KEY"))%>%
+  mutate(cardiovascular_sofa_points_num= ifelse(cardiovascular_sofa_points=="missing",NA,
+                                                as.numeric(cardiovascular_sofa_points)),
+         bilirubin_sofa_points_num= ifelse(bilirubin_sofa_points=="missing",NA,
+                                           as.numeric(bilirubin_sofa_points)),
+         gcs_sofa_points_num= ifelse(gcs_sofa_points=="missing",NA,
+                                     as.numeric(gcs_sofa_points)),
+         creatinine_sofa_points_num= ifelse(creatinine_sofa_points=="missing",NA,
+                                            as.numeric(creatinine_sofa_points)),
+         platelet_sofa_points_num= ifelse(platelet_sofa_points=="missing",NA,
+                                          as.numeric(platelet_sofa_points)),
+         respiratory_sofa_points_num= ifelse(respiratory_sofa_points=="missing",NA,
+                                             as.numeric(respiratory_sofa_points)),
+         total_score_num=ifelse(total_score=="missing",NA,as.numeric(total_score))
+  )%>%
+  mutate(bilirubin_sofa_points_num_imp=replace_na(bilirubin_sofa_points_num,0),
+         creatinine_sofa_points_num_imp=replace_na(creatinine_sofa_points_num,0),
+         platelet_sofa_points_num_imp=replace_na(platelet_sofa_points_num,0),
+         gcs_sofa_points_num_imp=replace_na(gcs_sofa_points_num,0),
+         cardiovascular_sofa_points_num_imp=replace_na(cardiovascular_sofa_points_num,0),
+         respiratory_sofa_points_num_imp=replace_na(respiratory_sofa_points_num,0),
+         total_score_num_imp=bilirubin_sofa_points_num_imp+
+           creatinine_sofa_points_num_imp+
+           platelet_sofa_points_num_imp+
+           gcs_sofa_points_num_imp+
+           cardiovascular_sofa_points_num_imp+
+           respiratory_sofa_points_num_imp)%>%
+  mutate(ADM_Year = str_sub(ADM_MON, 1,4),
+         ADM_Month = str_sub(ADM_MON, 6,7),
+         ADM_Date = as.Date(paste0(ADM_Year,"-",ADM_Month,"-01"),format = "%Y-%m-%d"))
+
+save(ReAdmitted_Dta1, file=here("data\\ReAdmitted.RData"))
 
 
 #####################################
@@ -198,7 +270,7 @@ test_data2 <- test_data2%>%
 train_data<-train_data2
 test_data<-test_data2
 
-#save(train_data, test_data, file = paste0(indir,"output\\SOFA_train_test_data_20JUL2021.RData"))
+#save(train_data, test_data, file = here("output\\SOFA_train_test_data_20Dec2021.RData"))
 
 
 
@@ -254,5 +326,5 @@ save(MV_mortality_train, MV_mortality_test, file=paste0(indir, "MV_mortality_20J
 #save(MV_mortality_MVstart_train, MV_mortality_test, file=paste0(indir, "MV_mortality_MVstart_20JUL2021.RData"))
 
 
-
+save(revisonDta0,file=here("data\\Final data\\revisonDta0.RData"))
 

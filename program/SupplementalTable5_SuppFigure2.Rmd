@@ -1,0 +1,569 @@
+---
+title: "EHR SOFA --- Analysis for Revisons"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  word_document:
+    reference_docx: "H:\\word rMarkDown template.docx"
+---
+
+```{r global_options, include=FALSE}
+#library(partykit)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(pROC)
+library(ROCR)
+#library(caret)
+library(RColorBrewer)
+library(rmarkdown)
+library(knitr)
+library(readr)
+library(readxl)
+library(stringr)
+
+library(givitiR)
+library(gridExtra)
+library(ggplot2)
+
+library(gtsummary)
+library(flextable)
+library(officer)
+library(here)
+
+opts_chunk$set(fig.width=10, fig.height=8,echo=FALSE, warning=FALSE, message=FALSE, comment = NA)
+```
+
+```{r package_options, include=FALSE}
+opts_knit$set(progress = TRUE, verbose = TRUE)
+```
+
+```{r myFunc}
+myGLMFunc <- function(var,...){
+  
+glm0 <- glm(death~ .,data=FirstMV.select%>%select(...),family=binomial())
+glmout <- broom::tidy(glm0, exponentiate = TRUE, conf.int=TRUE )%>%
+   mutate_if(is.numeric, round, 3)%>%
+  filter(term!="(Intercept)")%>%
+  mutate(OR = paste0(round(estimate, 3), " (",round(conf.low,3),", ",round(conf.high,3),")"))
+
+# Evaluate model performance On training set
+prob.discharge <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+roc.train <-roc(FirstMVdata.train$death, prob.discharge)
+ci.train <- ci.auc(roc.train)
+auc.train <- paste0(round(as.numeric(roc.train$auc),3), " (",round(as.numeric(ci.train)[1],3),",",round(as.numeric(ci.train)[3],3),")")
+
+# Evaluate model performance On test set
+prob.discharge <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+roc.test <- roc(FirstMVdata.test$death, prob.discharge)
+ci.test<- ci.auc(roc.test)
+auc.test <- paste0(round(as.numeric(roc.test$auc),3), " (",round(as.numeric(ci.test)[1],3),",",round(as.numeric(ci.test)[3],3),")")
+
+out <- data.frame(Variable = var,AUC.train = auc.train, AUC.test = auc.test, term = glmout$term, OR = glmout$OR)
+return(out)
+}
+
+myGLMFunc_NoOR <- function(var,...){
+  
+glm0 <- glm(death~ .,data=FirstMV.select.Not.OR%>%select(...),family=binomial())
+glmout <- broom::tidy(glm0, exponentiate = TRUE, conf.int=TRUE )%>%
+   mutate_if(is.numeric, round, 3)%>%
+  filter(term!="(Intercept)")%>%
+  mutate(OR = paste0(round(estimate, 3), " (",round(conf.low,3),", ",round(conf.high,3),")"))
+
+# Evaluate model performance On training set
+prob.discharge <- predict(glm0,  newdata=FirstMVdata.train.Not.OR, type="response",simplify=T)
+roc.train <-roc(FirstMVdata.train.Not.OR$death, prob.discharge)
+ci.train <- ci.auc(roc.train)
+auc.train <- paste0(round(as.numeric(roc.train$auc),3), " (",round(as.numeric(ci.train)[1],3),",",round(as.numeric(ci.train)[3],3),")")
+
+# Evaluate model performance On test set
+prob.discharge <- predict(glm0, newdata=FirstMVdata.test.Not.OR, type="response",simplify=T)
+roc.test <- roc(FirstMVdata.test.Not.OR$death, prob.discharge)
+ci.test<- ci.auc(roc.test)
+auc.test <- paste0(round(as.numeric(roc.test$auc),3), " (",round(as.numeric(ci.test)[1],3),",",round(as.numeric(ci.test)[3],3),")")
+
+out <- data.frame(Variable = var,AUC.train = auc.train, AUC.test = auc.test, term = glmout$term, OR = glmout$OR)
+return(out)
+}
+
+```
+
+```{r DataManipulation}
+# load(here("data\\ReAdmitted.RData"))
+# load(here("data\\Final data\\FirstMV_14JAN2022_final.RData"))
+# rm(list=c("FirstMVdata.train.NotESRD","FirstMVdata.test.NotESRD","FirstMV.select.NotESRD",
+#           "FirstMVdata.train.NotCKDESRD","FirstMVdata.test.NotCKDESRD","FirstMV.select.NotCKDESRD"))
+# load(here("data\\Final data\\revisonDta0.RData"))
+
+load("C:/Users/wangj27/Desktop/SOFA/data/ReAdmitted.RData")
+load("C:/Users/wangj27/Desktop/SOFA/data/Final data/FirstMV_14JAN2022_final.RData")
+rm(list=c("FirstMVdata.train.NotESRD","FirstMVdata.test.NotESRD","FirstMV.select.NotESRD",
+          "FirstMVdata.train.NotCKDESRD","FirstMVdata.test.NotCKDESRD","FirstMV.select.NotCKDESRD"))
+load("C:/Users/wangj27/Desktop/SOFA/data/Final data/revisonDta0.RData")
+
+
+
+FirstMVdata.train <-FirstMVdata.train%>%
+  left_join(revisonDta0, by=c("PAT_KEY"="encounterid"))%>%
+  mutate(sofa11_Pre1day_total_score_num_imp = case_when(
+    is.na(Pre1day_total_score_num_imp) ~ NA_character_,
+    Pre1day_total_score_num_imp<11 ~ "sofa < 11",
+    Pre1day_total_score_num_imp>=11 ~ "sofa >= 11"
+  ),
+  sofa11_Pre1day_total_score_num_imp = factor(sofa11_Pre1day_total_score_num_imp, levels=c("sofa < 11","sofa >= 11")),
+ Outcome = case_when(
+    death =="deceased" ~ 1,
+    death == "discharged" ~ 0
+  ),
+ LTAC = ifelse(dischargedisposition %in% c("DISCHARGED/TRANSFERRED TO A MEDICARE CERTIFIED LONG TERM CARE HOSPITAL (LTCH)",
+                                           "DISCHARGED/TRANSFERRED TO A MEDICARE CERTIFIED LONG TERM CARE HOSPITAL (LTCH) WITH A PLANNED ACUTE CARE HOSPITAL INPATIENT READMISSION (EFFECTIVE 10/1/13)"),1,0),
+ LTAC_longVent = ifelse(LTAC==1 | long_vent==1, 1, 0)
+ )
+
+FirstMVdata.test <-FirstMVdata.test%>%
+  left_join(revisonDta0, by=c("PAT_KEY"="encounterid"))%>%
+  mutate(sofa11_Pre1day_total_score_num_imp = case_when(
+    is.na(Pre1day_total_score_num_imp) ~ NA_character_,
+    Pre1day_total_score_num_imp<11 ~ "sofa < 11",
+    Pre1day_total_score_num_imp>=11 ~ "sofa >= 11"
+  ),
+  sofa11_Pre1day_total_score_num_imp = factor(sofa11_Pre1day_total_score_num_imp, levels=c("sofa < 11","sofa >= 11")),
+ Outcome = case_when(
+    death =="deceased" ~ 1,
+    death == "discharged" ~ 0
+  ),
+ LTAC = ifelse(dischargedisposition %in% c("DISCHARGED/TRANSFERRED TO A MEDICARE CERTIFIED LONG TERM CARE HOSPITAL (LTCH)",
+                                           "DISCHARGED/TRANSFERRED TO A MEDICARE CERTIFIED LONG TERM CARE HOSPITAL (LTCH) WITH A PLANNED ACUTE CARE HOSPITAL INPATIENT READMISSION (EFFECTIVE 10/1/13)"),1,0),
+  LTAC_longVent = ifelse(LTAC==1 | long_vent==1, 1, 0))
+
+
+FirstMV.select <-FirstMV.select%>%
+  mutate(sofa11_Pre1day_total_score_num_imp = case_when(
+    is.na(Pre1day_total_score_num_imp) ~ NA_character_,
+    Pre1day_total_score_num_imp<11 ~ "sofa < 11",
+    Pre1day_total_score_num_imp>=11 ~ "sofa >= 11"
+  ),
+  sofa11_Pre1day_total_score_num_imp = factor(sofa11_Pre1day_total_score_num_imp, levels=c("sofa < 11","sofa >= 11")),
+ Outcome = case_when(
+    death =="deceased" ~ 1,
+    death == "discharged" ~ 0
+  )
+ )%>%
+  left_join(FirstMVdata.train%>%select(PAT_KEY, LTAC, LTAC_longVent,long_vent), by="PAT_KEY")
+```
+
+
+### Q1: Run a sensitivity analysis excluding patients with an ICD-10 code for Operating Room (OR) on the day of mechanical ventilation. 
+
+445 and 204 patients, who had surgery on the day of ventilation, were removed from derivation and validation data respectively. 
+
+```{r}
+FirstMV.select.Not.OR <- FirstMV.select%>%
+  left_join(revisonDta0, by=c("PAT_KEY"="encounterid"))%>%
+  filter(or_vent!=1)
+
+#table(FirstMVdata.train$or_vent) #N=445 had or_vent==1
+FirstMVdata.train.Not.OR<-FirstMVdata.train%>%
+  filter(or_vent!=1)
+
+#table(FirstMVdata.test$or_vent) #N=204 had or_vent==1
+FirstMVdata.test.Not.OR<-FirstMVdata.test%>%
+  filter(or_vent!=1)
+
+myGLMFunc_NoOR(var = "SOFA", Pre1day_total_score_num_imp, death)
+myGLMFunc_NoOR(var = "Categorical SOFA", FourGrp_Pre1day_total_score_num_imp, death)
+myGLMFunc_NoOR(var = "age", AGE, death)
+myGLMFunc_NoOR(var = "age + Categories SOFA", AGE, FourGrp_Pre1day_total_score_num_imp, death)
+myGLMFunc_NoOR(var = "age + SOFA", AGE, Pre1day_total_score_num_imp, death)
+myGLMFunc_NoOR(var = "SOFA + age + covariates", Pre1day_total_score_num_imp, AGE, GENDER, Obesity, Diabetes, Hyptertension,death)
+myGLMFunc_NoOR(var = "SOFA + age + elixhauser score", Pre1day_total_score_num_imp, AGE, ElixhauserScore, death)
+myGLMFunc_NoOR(var = "SOFA + Elixhauser score", Pre1day_total_score_num_imp, ElixhauserScore,death)
+myGLMFunc_NoOR(var = "Categories SOFA + Elixhauser score", FourGrp_Pre1day_total_score_num_imp, ElixhauserScore, death)
+```
+
+
+```{r}
+### SOFA alone
+glm0 <- glm(Outcome~ .,data=FirstMV.select.Not.OR%>%select(Pre1day_total_score_num_imp, Outcome),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train.Not.OR, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test.Not.OR, type="response",simplify=T)
+
+cb.SOFA <- givitiCalibrationBelt(o = FirstMVdata.train.Not.OR$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.SOFA.test <- givitiCalibrationBelt(o = FirstMVdata.test.Not.OR$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+plot(cb.SOFA.test, main = "Calibration belt for mortality prediction \nSOFA (continuous), validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+
+
+### SOFA +Age
+glm0 <- glm(Outcome~ .,data=FirstMV.select.Not.OR%>%select(Pre1day_total_score_num_imp, AGE, Outcome),family=binomial())
+
+prob.discharge.train <- predict(glm0,  newdata=FirstMVdata.train.Not.OR, type="response",simplify=T)
+prob.discharge.test <- predict(glm0, newdata=FirstMVdata.test.Not.OR, type="response",simplify=T)
+
+cb.SOFA.Age <- givitiCalibrationBelt(o = FirstMVdata.train.Not.OR$Outcome, e = prob.discharge.train, devel = "internal", confLevels =0.95)
+cb.SOFA.Age.test <- givitiCalibrationBelt(o = FirstMVdata.test.Not.OR$Outcome, e = prob.discharge.test, devel = "external", confLevels =0.95)
+
+plot(cb.SOFA.Age.test, main = "Calibration belt for mortality prediction \nSOFA + Age, validation set",
+                          xlab = "Predicted probability",
+                          ylab = "Observed mortality")
+```
+
+
+### Q2: How many patients had multiple admissions and had admissions excluded? Of these patients, were admission SOFA scores higher on subsequent admissions?
+
+```{r}
+# calculate how many readmitted patients were included in the primary analysis
+ReAdmitted_Include <- ReAdmitted_Dta1%>%
+  filter(encounterid %in% c(FirstMVdata.train$PAT_KEY, FirstMVdata.test$PAT_KEY))
+
+Admission_Level <-ReAdmitted_Dta1%>%
+   filter(MEDREC_KEY %in% ReAdmitted_Include$MEDREC_KEY)%>%
+   distinct(encounterid, .keep_all = TRUE)  
+
+Patient_Level <- ReAdmitted_Dta1%>%
+   filter(MEDREC_KEY %in% ReAdmitted_Include$MEDREC_KEY)%>%
+   distinct(MEDREC_KEY, .keep_all = TRUE)  
+
+
+# freq table showing times of admission
+ReAdmitted_Freq <-ReAdmitted_Dta1%>%
+  filter(MEDREC_KEY %in% ReAdmitted_Include$MEDREC_KEY)%>%
+        select(MEDREC_KEY, encounterid)%>%
+        distinct(encounterid,.keep_all = TRUE)%>%
+        group_by(MEDREC_KEY)%>%
+        summarise(NumberOfAdmission=n())%>%
+        with(table(NumberOfAdmission))%>%
+  kable()
+
+# extract total SOFA at admission per each admission
+Admission_sofa <- Admission_Level%>%
+  select(MEDREC_KEY, encounterid, total_score_num, total_score_num_imp, ADM_Date)%>%
+  arrange(MEDREC_KEY, ADM_Date)%>%
+  group_by(MEDREC_KEY)%>%
+  mutate(ADM_Num = row_number())
+
+# wilcox.test(Admission_sofa$total_score_num_imp[Admission_sofa$ADM_Num %in% c(1,2)] ~ Admission_sofa$ADM_Num[Admission_sofa$ADM_Num %in% c(1,2)])
+# 
+# wilcox.test(Admission_sofa$total_score_num_imp[Admission_sofa$ADM_Num %in% c(1,3)] ~ Admission_sofa$ADM_Num[Admission_sofa$ADM_Num %in% c(1,3)])
+# 
+# t.test(Admission_sofa$total_score_num_imp[Admission_sofa$ADM_Num %in% c(1,2)] ~ Admission_sofa$ADM_Num[Admission_sofa$ADM_Num %in% c(1,2)])
+# 
+# t.test(Admission_sofa$total_score_num_imp[Admission_sofa$ADM_Num %in% c(1,3)] ~ Admission_sofa$ADM_Num[Admission_sofa$ADM_Num %in% c(1,3)])
+```
+
+`r length(unique(ReAdmitted_Dta1$MEDREC_KEY))` patients had been identified to have multiple admissions from the input data.
+After excluding patients who were on mechanical ventilation at admission and/or had a designation of DNR status at admission, we ended up with `r nrow(Patient_Level)` patients, who were included in the primary analysis. 
+
+For those `r nrow(Patient_Level)` patients, one admission was randomly selected to be used in the analysis (`r nrow(Admission_Level) - nrow(Patient_Level)` out of `r nrow(Admission_Level)` encounters had been excluded.). 
+
+The following frequency table shows number of admissions for this patient group. From the table, we observed that the majority of the readmitted patients had 2 or 3 times of admission. 
+
+```{r}
+ReAdmitted_Freq
+```
+
+The median sofa is `r median(Admission_sofa$total_score_num_imp[Admission_sofa$ADM_Num==1])` for the 1st admission, and it is `r median(Admission_sofa$total_score_num_imp[Admission_sofa$ADM_Num==2])` for the 2nd and `r median(Admission_sofa$total_score_num_imp[Admission_sofa$ADM_Num==3])` for the 3rd. Density plots were constructed by the times of admission. Two-sample t-test and Wilcoxon rank sum test didn't detect any significant difference in admission sofa score between the 1st and the 2nd, or between the 1st and the 3rd admission. 
+
+```{r}
+ggplot(Admission_sofa, aes(total_score_num_imp))+
+  geom_density(aes(group=as.factor(ADM_Num), fill=as.factor(ADM_Num)),alpha=0.5, adjust=2)+
+  scale_fill_discrete(name = "Times of Admission")
+```
+
+
+### Q3: Discrimination of SOFA for predicting disposition to LTAC (long-term acute care) and prolonged mechanical ventilation. 
+
+Note: 
+  + From the input data, two types of discharge were considered as disposition to LTAC, which are "DISCHARGED/TRANSFERRED TO A MEDICARE CERTIFIED LONG TERM CARE HOSPITAL (LTCH) WITH A PLANNED ACUTE CARE HOSPITAL INPATIENT READMISSION" and "DISCHARGED/TRANSFERRED TO A MEDICARE CERTIFIED LONG TERM CARE HOSPITAL (LTCH). 
+  + In this analysis, mechanical ventilation time longer than 96 hours is considered as prolonged mechanical ventilation.
+
+```{r}
+glm0 <- glm(LTAC~ .,data=FirstMV.select%>%select(LTAC,Pre1day_total_score_num_imp),family=binomial())
+glmout <- broom::tidy(glm0, exponentiate = TRUE, conf.int=TRUE )%>%
+   mutate_if(is.numeric, round, 3)%>%
+  filter(term!="(Intercept)")%>%
+  mutate(OR = paste0(round(estimate, 3), " (",round(conf.low,3),", ",round(conf.high,3),")"))
+
+# Evaluate model performance On training set
+prob.discharge <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+roc.train <-roc(FirstMVdata.train$LTAC, prob.discharge)
+ci.train <- ci.auc(roc.train)
+auc.train <- paste0(round(as.numeric(roc.train$auc),3), " (",round(as.numeric(ci.train)[1],3),",",round(as.numeric(ci.train)[3],3),")")
+
+# Evaluate model performance On test set
+prob.discharge <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+roc.test <- roc(FirstMVdata.test$LTAC, prob.discharge)
+ci.test<- ci.auc(roc.test)
+auc.test <- paste0(round(as.numeric(roc.test$auc),3), " (",round(as.numeric(ci.test)[1],3),",",round(as.numeric(ci.test)[3],3),")")
+
+out <- data.frame(AUC.train = auc.train, AUC.test = auc.test, term = glmout$term, OR = glmout$OR)
+
+kable(out, caption = "SOFA in prediction of disposition to LTAC")
+```
+
+###
+
+```{r}
+glm0 <- glm(long_vent~ .,data=FirstMV.select%>%select(long_vent,Pre1day_total_score_num_imp),family=binomial())
+glmout <- broom::tidy(glm0, exponentiate = TRUE, conf.int=TRUE )%>%
+   mutate_if(is.numeric, round, 3)%>%
+  filter(term!="(Intercept)")%>%
+  mutate(OR = paste0(round(estimate, 3), " (",round(conf.low,3),", ",round(conf.high,3),")"))
+
+# Evaluate model performance On training set
+prob.discharge <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+roc.train <-roc(FirstMVdata.train$long_vent, prob.discharge)
+ci.train <- ci.auc(roc.train)
+auc.train <- paste0(round(as.numeric(roc.train$auc),3), " (",round(as.numeric(ci.train)[1],3),",",round(as.numeric(ci.train)[3],3),")")
+
+# Evaluate model performance On test set
+prob.discharge <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+roc.test <- roc(FirstMVdata.test$long_vent, prob.discharge)
+ci.test<- ci.auc(roc.test)
+auc.test <- paste0(round(as.numeric(roc.test$auc),3), " (",round(as.numeric(ci.test)[1],3),",",round(as.numeric(ci.test)[3],3),")")
+
+out <- data.frame(AUC.train = auc.train, AUC.test = auc.test, term = glmout$term, OR = glmout$OR)
+
+kable(out, caption = "SOFA in prediction of prolonged mechanical ventilation")
+```
+
+###
+
+```{r}
+glm0 <- glm(LTAC_longVent~ .,data=FirstMV.select%>%select(LTAC_longVent,Pre1day_total_score_num_imp),family=binomial())
+glmout <- broom::tidy(glm0, exponentiate = TRUE, conf.int=TRUE )%>%
+   mutate_if(is.numeric, round, 3)%>%
+  filter(term!="(Intercept)")%>%
+  mutate(OR = paste0(round(estimate, 3), " (",round(conf.low,3),", ",round(conf.high,3),")"))
+
+# Evaluate model performance On training set
+prob.discharge <- predict(glm0,  newdata=FirstMVdata.train, type="response",simplify=T)
+roc.train <-roc(FirstMVdata.train$LTAC_longVent, prob.discharge)
+ci.train <- ci.auc(roc.train)
+auc.train <- paste0(round(as.numeric(roc.train$auc),3), " (",round(as.numeric(ci.train)[1],3),",",round(as.numeric(ci.train)[3],3),")")
+
+# Evaluate model performance On test set
+prob.discharge <- predict(glm0, newdata=FirstMVdata.test, type="response",simplify=T)
+roc.test <- roc(FirstMVdata.test$LTAC_longVent, prob.discharge)
+ci.test<- ci.auc(roc.test)
+auc.test <- paste0(round(as.numeric(roc.test$auc),3), " (",round(as.numeric(ci.test)[1],3),",",round(as.numeric(ci.test)[3],3),")")
+
+out <- data.frame(AUC.train = auc.train, AUC.test = auc.test, term = glmout$term, OR = glmout$OR)
+
+kable(out, caption = "SOFA in prediction of disposition to LTAC and/or prolonged mechanical ventilation")
+```
+
+```{r, eval=FALSE}
+table(FirstMVdata.train$LTAC, FirstMVdata.train$long_vent)
+table(FirstMVdata.train$LTAC)
+table(FirstMVdata.train$long_vent)
+table(FirstMVdata.train$LTAC_longVent)
+
+table(FirstMVdata.test$LTAC, FirstMVdata.test$long_vent)
+table(FirstMVdata.test$LTAC)
+table(FirstMVdata.test$long_vent)
+table(FirstMVdata.test$LTAC_longVent)
+```
+
+
+
+
+### Q4: What is AUC for SOFA > 11 vs < 11?*
+
+```{r}
+myGLMFunc(var = "Binary variable of sofa<11 vs >=11",sofa11_Pre1day_total_score_num_imp,death)%>%
+  {.->> glmout}%>%
+  kable()
+```
+
+Logistic regression model was constructed using binary sofa score with 11 as the cutoff to predict in-hospital death. Based on this model AUC (95% CI) is`r glmout$AUC.train` using the derivation set, and is `r glmout$AUC.test` using the validation set. 
+
+
+### Q5: Breaking down our primary outcome, how many patients died and how many were discharged to hospice.* 
+
+```{r}
+outcome.train <- filter(FirstMVdata.train,death=="deceased")%>%
+  mutate(expire_hospice = ifelse(str_detect(dischargedisposition,"EXPIRED"),"died",
+                                 ifelse(str_detect(dischargedisposition,"HOSPICE"),"discharged to hospice",NA)))%>%
+  with(table(expire_hospice))%>%
+  addmargins(margin=1)%>%as.data.frame()
+
+outcome.test <- filter(FirstMVdata.test,death=="deceased")%>%
+  mutate(expire_hospice = ifelse(str_detect(dischargedisposition,"EXPIRED"),"died",
+                                 ifelse(str_detect(dischargedisposition,"HOSPICE"),"discharged to hospice",NA)))%>%
+  with(table(expire_hospice))%>%
+  addmargins(margin=1)%>%as.data.frame()
+```
+
+In derivation set, `r outcome.train[1,2]` out of `r outcome.train[3,2]` (`r round(outcome.train[1,2]*100/outcome.train[3,2],2)`%) patients died, whereas `r outcome.train[2,2]` out of `r outcome.train[3,2]` (`r round(outcome.train[2,2]*100/outcome.train[3,2],2)`%) patients were discharged to hospice. 
+
+In validation set, `r outcome.test[1,2]` out of `r outcome.test[3,2]` (`r round(outcome.test[1,2]*100/outcome.test[3,2],2)`%) patients died, whereas `r outcome.test[2,2]` out of `r outcome.test[3,2]` (`r round(outcome.test[2,2]*100/outcome.test[3,2],2)`%) patients were discharged to hospice. 
+
+
+### Q6: AUC for admission SOFA with mortality. AUC of change in SOFA score from admission to intubation (24 hours prior to intubation) with mortality. AUC for change in SOFA from admission to 3 days after intubation with mortality.* 
+
+For each of the 3 sofa measurements (sofa at admission, sofa change from admission to 24 hours prior to mv, and sofa change from admission to 3 days post mv), logistic regression models were fit to predict mortality using derivation and validation set, separately. AUC output and odds ratio results were shown in the tables followed by stacked-bar plots to visualize proportion of died across sofa values. 
+
+
+**admission SOFA with mortality**
+
+```{r}
+# Note: Intubation starting date was considered as Day 0
+myGLMFunc(var = "sofa at admission",total_score_num_imp_ADM,death)%>%
+  {.->> glmout}%>%
+  kable()
+
+dtaplot <-FirstMV.select%>%
+  select(PAT_KEY, death, total_score_num_imp_ADM)%>%
+  group_by(total_score_num_imp_ADM, death)%>%
+  summarise(Num=n())%>%
+  pivot_wider(id_cols = total_score_num_imp_ADM, names_from = death, values_from=Num)%>%
+  rowwise()%>%
+  mutate(all = sum(c_across(discharged:deceased),na.rm = TRUE),
+         Alive = discharged/all,
+         Died = deceased/all)%>%
+  ungroup()%>%
+  select(total_score_num_imp_ADM, Alive, Died)%>%
+  pivot_longer(Alive:Died, names_to ="alive_died", values_to="prop")
+
+
+ggplot(dtaplot, aes(x=total_score_num_imp_ADM, y=prop, fill=as.factor(alive_died)))+
+  geom_bar(position="fill", stat="identity") + theme_bw() + ylab("Proportion") + xlab("sofa at admission")+
+  theme(legend.title = element_blank(),
+        #legend.position = "none",
+        text = element_text(size=17))+
+  scale_fill_manual(values=c("lightblue", "salmon"))+
+  scale_x_continuous( breaks = c(seq(-8, 17, by=3)))
+```
+
+**change in SOFA score from admission to intubation (24 hours prior to intubation) with mortality**
+
+```{r}
+myGLMFunc(var = "sofa change from admission to intubation (24 hours prior to intubation)",total_score_num_imp_chgADM_toPre1day,death)%>%
+  {.->> glmout}%>%
+  kable()
+
+#table(FirstMV.select$total_score_num_imp_chgADM_toPre1day, useNA = "ifany")
+
+dtaplot <-FirstMV.select%>%
+  select(PAT_KEY, death, total_score_num_imp_chgADM_toPre1day)%>%
+  group_by(total_score_num_imp_chgADM_toPre1day, death)%>%
+  summarise(Num=n())%>%
+  pivot_wider(id_cols = total_score_num_imp_chgADM_toPre1day, names_from = death, values_from=Num)%>%
+  rowwise()%>%
+  mutate(all = sum(c_across(discharged:deceased),na.rm = TRUE),
+         Alive = discharged/all,
+         Died = deceased/all)%>%
+  ungroup()%>%
+  select(total_score_num_imp_chgADM_toPre1day, Alive, Died)%>%
+  pivot_longer(Alive:Died, names_to ="alive_died", values_to="prop")
+
+
+ggplot(dtaplot, aes(x=total_score_num_imp_chgADM_toPre1day, y=prop, fill=as.factor(alive_died)))+
+  geom_bar(position="fill", stat="identity") + theme_bw() + ylab("Proportion") + xlab("sofa change from admission to 24 hours prior to mv \n (sofa within 24hours prior to mv - sofa at admisson)")+
+  theme(legend.title = element_blank(),
+        #legend.position = "none",
+        text = element_text(size=17))+
+  scale_fill_manual(values=c("lightblue", "salmon"))+
+  scale_x_continuous( breaks = c(seq(-8, 17, by=3)))
+
+```
+
+
+**change in SOFA from admission to 3 days after intubation with mortality**
+
+Note: Compared to the other 2 measurements, about 13% patients don't have sofa score available 3 days post intubation, and 2/3 of them were deceased before 3 days post intubation.
+
+```{r}
+myGLMFunc(var = "sofa change from admission to 3 days after intubation",total_score_num_imp_chgADM_3DaypostMV,death)%>%
+  {.->> glmout}%>%
+  kable()
+
+# 
+#table(FirstMV.select$total_score_num_imp_chgADM_3DaypostMV, useNA = "ifany") ### 1351/10085 = 13% patients don't have sofa score available 3 days post intubation
+#table(FirstMV.select$total_score_num_imp_chgADM_3DaypostMV, FirstMV.select$death, useNA = "ifany")
+
+dtaplot <-FirstMV.select%>%
+  select(PAT_KEY, death, total_score_num_imp_chgADM_3DaypostMV)%>%
+  group_by(total_score_num_imp_chgADM_3DaypostMV, death)%>%
+  summarise(Num=n())%>%
+  pivot_wider(id_cols = total_score_num_imp_chgADM_3DaypostMV, names_from = death, values_from=Num)%>%
+  rowwise()%>%
+  mutate(all = sum(c_across(discharged:deceased),na.rm = TRUE),
+         Alive = discharged/all,
+         Died = deceased/all)%>%
+  ungroup()%>%
+  select(total_score_num_imp_chgADM_3DaypostMV, Alive, Died)%>%
+  pivot_longer(Alive:Died, names_to ="alive_died", values_to="prop")
+
+
+ggplot(dtaplot, aes(x=total_score_num_imp_chgADM_3DaypostMV, y=prop, fill=as.factor(alive_died)))+
+  geom_bar(position="fill", stat="identity") + theme_bw() + ylab("Proportion") + xlab("sofa change from admission to 3 days post mv \n (sofa 3 days post mv - sofa at admisson)")+
+  theme(legend.title = element_blank(),
+        #legend.position = "none",
+        text = element_text(size=17))+
+  scale_fill_manual(values=c("lightblue", "salmon"))+
+  scale_x_continuous( breaks = c(seq(-8, 17, by=3)))
+
+```
+
+```{r, eval=FALSE}
+GrpDischarge <- read_excel("C:/Users/wangj27/Desktop/SOFA/data/Final data/List of Discharge Disposition Grouped May2021.xlsx", sheet=1)
+
+
+#train set
+checkDischarge.train <- FirstMVdata.train%>%
+  select(PAT_KEY, dayoffset, death, dischargedisposition,total_score_num_imp,Pre1day_total_score_num,
+         AGE, GENDER,Race_Ethnicity=race3,ElixhauserScore)%>%                            
+  left_join(GrpDischarge, by=c("dischargedisposition"="discharge disposition"))%>%
+  mutate(`Group of discharge` = ifelse(is.na(`Group of discharge`),"Acute Hospital Discharges", `Group of discharge`),
+         Discharge = factor(`Group of discharge`, levels=c("Not Acute Hospital Discharges","Acute Hospital Discharges","Died")))%>%
+  mutate(Discharge = recode(Discharge,"Not Acute Hospital Discharges"="Discharge Home",
+                            "Acute Hospital Discharges"="Discharge Acute Facility","Died"="Died"))
+
+myft.train <- checkDischarge.train%>%
+  arrange(Discharge)%>%
+  gtsummary::tbl_cross(
+    col = Discharge,
+    row = dischargedisposition,
+    percent = "column"
+  )%>%
+  as_flex_table()
+
+# test set
+checkDischarge.test <- FirstMVdata.test%>%
+  select(PAT_KEY, dayoffset, death, dischargedisposition,total_score_num_imp,Pre1day_total_score_num,
+         AGE, GENDER,Race_Ethnicity=race3,ElixhauserScore)%>%                            
+  left_join(GrpDischarge, by=c("dischargedisposition"="discharge disposition"))%>%
+  mutate(`Group of discharge` = ifelse(is.na(`Group of discharge`),"Acute Hospital Discharges", `Group of discharge`),
+         Discharge = factor(`Group of discharge`, levels=c("Not Acute Hospital Discharges","Acute Hospital Discharges","Died")))%>%
+  mutate(Discharge = recode(Discharge,"Not Acute Hospital Discharges"="Discharge Home",
+                            "Acute Hospital Discharges"="Discharge Acute Facility","Died"="Died"))
+
+myft.test <- checkDischarge.test%>%
+  arrange(Discharge, dischargedisposition)%>%
+  gtsummary::tbl_cross(
+    col = Discharge,
+    row = dischargedisposition,
+    percent = "column"
+  )%>%
+  as_flex_table() 
+
+# output
+my_doc_Alltable<-read_docx()%>%
+  body_add_par("Table 1: Grouped discharge reasons --- derivation set", style = "Table Caption")%>%
+  body_add_flextable(myft.train)%>%
+  body_end_section_landscape()%>%
+  
+  body_add_par("Table 2: Grouped discharge reasons --- validation set", style = "Table Caption")%>%
+  body_add_flextable(myft.test)%>%
+body_end_section_landscape()
+
+print(my_doc_Alltable, target ="C:/Users/wangj27/Desktop/SOFA/output/discharge_summarytable_18Jan2022.docx")
+
+
+```
+
