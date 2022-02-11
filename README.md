@@ -1,5 +1,5 @@
 # Pre-intubation SOFA Score for Predicting COVID-19 Mortality: External Validation using EHR from 86 U.S. Healthcare Systems to Appraise Current Ventilator Triage Algorithms 
-This repository copntains R scripts used for generating results, figures, and tables published in the article "Pre-intubation SOFA Score for Predicting COVID-19 Mortality: External Validation using EHR from 86 U.S. Healthcare Systems to Appraise Current Ventilator Triage Algorithms" (Placeholder for paper link)
+This repository contains R scripts used for generating results, figures, and tables published in the article "Pre-intubation SOFA Score for Predicting COVID-19 Mortality: External Validation using EHR from 86 U.S. Healthcare Systems to Appraise Current Ventilator Triage Algorithms" (Placeholder for paper link)
 
 The main data collected from the study is not available at this time; therefore the R code is provided only to give a detailed record of how the main analyses were done, and without the data file that code cannot be run to recreate tables and figures in the manuscript. 
 
