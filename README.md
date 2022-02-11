@@ -1,5 +1,5 @@
-# EHR_SOFA
-This repository copntains R code for manuscript "Pre-intubation SOFA Score for Predicting COVID-19 Mortality: External Validation using EHR from 86 U.S. Healthcare Systems to Appraise Current Ventilator Triage Algorithms"
+# Pre-intubation SOFA Score for Predicting COVID-19 Mortality: External Validation using EHR from 86 U.S. Healthcare Systems to Appraise Current Ventilator Triage Algorithms 
+This repository copntains R scripts used for generating results, figures, and tables pusblihsed in the article "Pre-intubation SOFA Score for Predicting COVID-19 Mortality: External Validation using EHR from 86 U.S. Healthcare Systems to Appraise Current Ventilator Triage Algorithms" (Placeholder for paper link)
 
 The main data collected from the study is not available at this time; therefore the R code is provided only to give a detailed record of how the main analyses were done, and without the data file that code cannot be run to recreate tables and figures in the manuscript. 
 
@@ -18,7 +18,8 @@ In the *Program* folder, R and Rmd files were named by either the table/figure n
 6. `SupplementalTable2a_3b_SensitivityAnalysisExcludeESRD.Rmd` contains Rmd code for sensitivity analysis excluding patients with ESRD (End Stage Renal Disease).
 7. `SupplementalTable2b_3c_SensitivityAnalysisExcludeESRD&CKD.Rmd` contains Rmd code for another sensitivity analysis exluding patients with ESRD+CKD (Chronic Kidney Disease).
 8. `SupplementalTable4a_4b_logisitcReg&TreeModel_ExcludeImputedZero.Rmd` contains Rmd code for another sensitivity analysis excluding patients whose SOFA values got imputed as 0.
+9. `SupplementalTable5_SuppFigure2.Rmd` contains Rmd code for sensitivity analysis excluding patients who had an ICD-10 code for Operating Room (OR) or other procedural indications on the same day as intubation, as well as code to plot Supplemental Figure2. 
 
-9. `2DHistogram Heatmap showing predicted prob of glm models.R` includes R code to visualize predicted probability of Age and/or total SOFA generated from logistic regression models.
-10. `ScatterShaded_colorPlot_BasedOnTree&Glm.R` includes R code to visualize predicted performance of Age and total SOFA based on logistic regression models and conditional classification tree model.
+10. `2DHistogram Heatmap showing predicted prob of glm models.R` includes R code to visualize predicted probability of Age and/or total SOFA generated from logistic regression models.
+11. `ScatterShaded_colorPlot_BasedOnTree&Glm.R` includes R code to visualize predicted performance of Age and total SOFA based on logistic regression models and conditional classification tree model.
 
